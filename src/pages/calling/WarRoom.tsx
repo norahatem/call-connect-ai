@@ -2,14 +2,14 @@ import { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
-import { ArrowLeft, Zap, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Zap, CheckCircle2, Volume2, VolumeX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { ProviderCard } from '@/components/providers/ProviderCard';
 import { useAuth } from '@/hooks/useAuth';
+import { useAICall } from '@/hooks/useAICall';
 import { supabase } from '@/integrations/supabase/client';
-import { Provider, Call, Search, TranscriptLine, CallContextData } from '@/types';
-import { simulateCall } from '@/lib/call-simulation';
+import { Provider, Call, Search, CallContextData } from '@/types';
 
 export default function WarRoomPage() {
   const navigate = useNavigate();
@@ -18,11 +18,76 @@ export default function WarRoomPage() {
   
   const [search, setSearch] = useState<Search | null>(null);
   const [providers, setProviders] = useState<Provider[]>([]);
-  const [calls, setCalls] = useState<Map<string, Call>>(new Map());
   const [winnerProviderId, setWinnerProviderId] = useState<string | null>(null);
   const [callingActive, setCallingActive] = useState(true);
   const [callQueue, setCallQueue] = useState<string[]>([]);
   const [currentCallIndex, setCurrentCallIndex] = useState(0);
+  const [calls, setCalls] = useState<Map<string, Call>>(new Map());
+
+  const { 
+    callStates, 
+    initiateCall, 
+    cancelAllCalls, 
+    isAudioEnabled, 
+    setIsAudioEnabled 
+  } = useAICall({
+    onCallComplete: useCallback((providerId: string, result) => {
+      // Sync result to calls state
+      setCalls(prev => {
+        const newCalls = new Map(prev);
+        const call = newCalls.get(providerId);
+        if (call) {
+          newCalls.set(providerId, {
+            ...call,
+            status: result.status,
+            transcript: result.transcript,
+            duration: result.duration,
+            available_slot: result.availableSlot?.toISOString(),
+            failure_reason: result.failureReason,
+            updated_at: new Date().toISOString(),
+          });
+        }
+        return newCalls;
+      });
+    }, []),
+    onTranscriptUpdate: useCallback((providerId: string, transcript) => {
+      setCalls(prev => {
+        const newCalls = new Map(prev);
+        const call = newCalls.get(providerId);
+        if (call) {
+          newCalls.set(providerId, {
+            ...call,
+            transcript,
+            updated_at: new Date().toISOString(),
+          });
+        }
+        return newCalls;
+      });
+    }, []),
+    enableTTS: true,
+  });
+
+  // Sync callStates to calls
+  useEffect(() => {
+    callStates.forEach((state, providerId) => {
+      setCalls(prev => {
+        const newCalls = new Map(prev);
+        const call = newCalls.get(providerId);
+        if (call) {
+          newCalls.set(providerId, {
+            ...call,
+            status: state.status,
+            transcript: state.transcript,
+            duration: state.duration,
+            available_slot: state.availableSlot?.toISOString(),
+            failure_reason: state.failureReason,
+            updated_at: new Date().toISOString(),
+          });
+        }
+        return newCalls;
+      });
+    });
+  }, [callStates]);
 
   // Load search and providers
   useEffect(() => {
@@ -73,141 +138,39 @@ export default function WarRoomPage() {
     loadData();
   }, [searchId, user]);
 
-  // Simulate calling process
-  const simulateCallProcess = useCallback(async (providerId: string) => {
-    if (!search || !callingActive || winnerProviderId) return;
-
-    const provider = providers.find(p => p.id === providerId);
-    if (!provider) return;
-
-    // Update to dialing
-    setCalls(prev => {
-      const newCalls = new Map(prev);
-      const call = newCalls.get(providerId);
-      if (call) {
-        newCalls.set(providerId, { ...call, status: 'dialing', updated_at: new Date().toISOString() });
-      }
-      return newCalls;
-    });
-
-    // Wait 2-4 seconds for dialing
-    await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 2000));
-    
-    if (!callingActive || winnerProviderId) return;
-
-    // Random chance of no answer
-    if (Math.random() < 0.15) {
-      setCalls(prev => {
-        const newCalls = new Map(prev);
-        const call = newCalls.get(providerId);
-        if (call) {
-          newCalls.set(providerId, { 
-            ...call, 
-            status: 'no_answer', 
-            failure_reason: 'No answer after 30 seconds',
-            duration: 30,
-            updated_at: new Date().toISOString() 
-          });
-        }
-        return newCalls;
-      });
-      return;
-    }
-
-    // Connected
-    setCalls(prev => {
-      const newCalls = new Map(prev);
-      const call = newCalls.get(providerId);
-      if (call) {
-        newCalls.set(providerId, { ...call, status: 'connected', updated_at: new Date().toISOString() });
-      }
-      return newCalls;
-    });
-
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    if (!callingActive || winnerProviderId) return;
-
-    // In progress with transcript simulation
-    const preferences = search.preferences as CallContextData | undefined;
-    const result = simulateCall(
-      search.service,
-      'Customer',
-      preferences?.time_preference || 'flexible',
-      preferences?.details || ''
-    );
-
-    // Simulate transcript appearing over time
-    setCalls(prev => {
-      const newCalls = new Map(prev);
-      const call = newCalls.get(providerId);
-      if (call) {
-        newCalls.set(providerId, { ...call, status: 'in_progress', updated_at: new Date().toISOString() });
-      }
-      return newCalls;
-    });
-
-    // Stream transcript lines
-    for (let i = 0; i < result.transcript.length; i++) {
-      if (!callingActive || winnerProviderId) break;
-      
-      await new Promise(resolve => setTimeout(resolve, 1500 + Math.random() * 1500));
-      
-      setCalls(prev => {
-        const newCalls = new Map(prev);
-        const call = newCalls.get(providerId);
-        if (call) {
-          const newTranscript = [...(call.transcript as TranscriptLine[]), result.transcript[i]];
-          newCalls.set(providerId, { 
-            ...call, 
-            transcript: newTranscript,
-            duration: call.duration + 2,
-            updated_at: new Date().toISOString() 
-          });
-        }
-        return newCalls;
-      });
-    }
-
+  // Check for winner
+  useEffect(() => {
     if (winnerProviderId) return;
 
-    // Final result
-    if (result.status === 'success') {
+    const successfulCall = Array.from(calls.entries()).find(([_, call]) => call.status === 'success');
+    if (successfulCall) {
+      const [providerId, call] = successfulCall;
       setWinnerProviderId(providerId);
       setCallingActive(false);
-      
-      // Update winning call
+      cancelAllCalls();
+
+      // Cancel other calls
       setCalls(prev => {
         const newCalls = new Map(prev);
-        const call = newCalls.get(providerId);
-        if (call) {
-          newCalls.set(providerId, { 
-            ...call, 
-            status: 'success',
-            available_slot: result.availableSlot?.toISOString(),
-            duration: result.duration,
-            updated_at: new Date().toISOString() 
-          });
-        }
-        
-        // Cancel other active calls
         newCalls.forEach((c, id) => {
           if (id !== providerId && ['queued', 'dialing', 'connected', 'in_progress'].includes(c.status)) {
             newCalls.set(id, { ...c, status: 'cancelled', updated_at: new Date().toISOString() });
           }
         });
-        
         return newCalls;
       });
 
       // Create booking in database
-      if (result.confirmationCode && result.availableSlot) {
-        await supabase.from('bookings').insert({
+      const provider = providers.find(p => p.id === providerId);
+      const state = callStates.get(providerId);
+      
+      if (state?.confirmationCode && state?.availableSlot) {
+        supabase.from('bookings').insert({
           user_id: user?.id,
-          call_id: calls.get(providerId)?.id,
+          call_id: call.id,
           provider_id: providerId,
-          appointment_time: result.availableSlot.toISOString(),
-          confirmation_code: result.confirmationCode
+          appointment_time: state.availableSlot.toISOString(),
+          confirmation_code: state.confirmationCode
         });
       }
 
@@ -223,56 +186,67 @@ export default function WarRoomPage() {
       setTimeout(() => {
         navigate(`/booking/${searchId}`);
       }, 3000);
-    } else {
-      setCalls(prev => {
-        const newCalls = new Map(prev);
-        const call = newCalls.get(providerId);
-        if (call) {
-          newCalls.set(providerId, { 
-            ...call, 
-            status: result.status,
-            failure_reason: result.failureReason,
-            duration: result.duration,
-            updated_at: new Date().toISOString() 
-          });
-        }
-        return newCalls;
-      });
     }
-  }, [search, callingActive, winnerProviderId, providers, navigate, user, calls]);
+  }, [calls, winnerProviderId, cancelAllCalls, callStates, providers, user, navigate, searchId]);
 
   // Start calling sequence
   useEffect(() => {
-    if (callQueue.length === 0 || !callingActive) return;
+    if (callQueue.length === 0 || !callingActive || !search || providers.length === 0) return;
+
+    const preferences = search.preferences as CallContextData | undefined;
+    const context: CallContextData = {
+      purpose: preferences?.purpose || 'new_appointment',
+      details: preferences?.details || '',
+      time_preference: preferences?.time_preference || 'flexible',
+    };
 
     // Start 3 calls in parallel initially
     const startInitialCalls = async () => {
       const initialBatch = callQueue.slice(0, 3);
       initialBatch.forEach((providerId, index) => {
-        setTimeout(() => {
-          simulateCallProcess(providerId);
-        }, index * 1000);
+        const provider = providers.find(p => p.id === providerId);
+        if (provider) {
+          setTimeout(() => {
+            initiateCall(provider, search.service, 'Customer', context);
+          }, index * 1500);
+        }
       });
       setCurrentCallIndex(3);
     };
 
-    startInitialCalls();
-  }, [callQueue]);
+    const timeoutId = setTimeout(startInitialCalls, 500);
+    return () => clearTimeout(timeoutId);
+  }, [callQueue, providers, search, callingActive]);
 
   // Continue with more calls as previous ones complete
   useEffect(() => {
-    if (!callingActive || winnerProviderId) return;
+    if (!callingActive || winnerProviderId || !search || providers.length === 0) return;
     
     const completedCount = Array.from(calls.values()).filter(
       c => ['success', 'failed', 'no_answer', 'cancelled'].includes(c.status)
     ).length;
 
-    if (completedCount > 0 && currentCallIndex < callQueue.length) {
+    const activeCount = Array.from(calls.values()).filter(
+      c => ['dialing', 'connected', 'in_progress'].includes(c.status)
+    ).length;
+
+    // Start next call if we have capacity (max 3 concurrent)
+    if (activeCount < 3 && currentCallIndex < callQueue.length) {
+      const preferences = search.preferences as CallContextData | undefined;
+      const context: CallContextData = {
+        purpose: preferences?.purpose || 'new_appointment',
+        details: preferences?.details || '',
+        time_preference: preferences?.time_preference || 'flexible',
+      };
+
       const nextProviderId = callQueue[currentCallIndex];
-      setCurrentCallIndex(prev => prev + 1);
-      simulateCallProcess(nextProviderId);
+      const provider = providers.find(p => p.id === nextProviderId);
+      if (provider) {
+        setCurrentCallIndex(prev => prev + 1);
+        initiateCall(provider, search.service, 'Customer', context);
+      }
     }
-  }, [calls, currentCallIndex, callQueue, callingActive, winnerProviderId, simulateCallProcess]);
+  }, [calls, currentCallIndex, callQueue, callingActive, winnerProviderId, search, providers, initiateCall]);
 
   const activeCallCount = Array.from(calls.values()).filter(
     c => ['dialing', 'connected', 'in_progress'].includes(c.status)
@@ -289,7 +263,10 @@ export default function WarRoomPage() {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => navigate('/dashboard')}
+              onClick={() => {
+                cancelAllCalls();
+                navigate('/dashboard');
+              }}
               className="text-muted-foreground hover:text-foreground"
             >
               <ArrowLeft className="h-5 w-5" />
@@ -298,6 +275,21 @@ export default function WarRoomPage() {
           </div>
           
           <div className="flex items-center gap-6">
+            {/* Audio toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsAudioEnabled(!isAudioEnabled)}
+              className="text-muted-foreground hover:text-foreground"
+              title={isAudioEnabled ? "Mute audio" : "Enable audio"}
+            >
+              {isAudioEnabled ? (
+                <Volume2 className="h-5 w-5" />
+              ) : (
+                <VolumeX className="h-5 w-5" />
+              )}
+            </Button>
+
             {/* Status indicator */}
             <div className="flex items-center gap-2">
               {callingActive ? (
@@ -331,7 +323,7 @@ export default function WarRoomPage() {
           <div className="flex items-center gap-3 mb-2">
             <Zap className="h-6 w-6 text-primary" />
             <h1 className="text-2xl font-bold">
-              {winnerProviderId ? 'Appointment Booked!' : 'Calling Providers...'}
+              {winnerProviderId ? 'Appointment Booked!' : 'AI Calling Providers...'}
             </h1>
           </div>
           {search && (

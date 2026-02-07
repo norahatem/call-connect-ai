@@ -1,1 +1,13 @@
 project_id = "qslaygclwqplwqgosone"
+
+[functions.generate-call-script]
+verify_jwt = false
+
+[functions.simulate-call-response]
+verify_jwt = false
+
+[functions.elevenlabs-tts]
+verify_jwt = false
+
+[functions.ai-call-orchestrator]
+verify_jwt = false
