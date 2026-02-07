@@ -20,3 +20,9 @@ verify_jwt = false
 
 [functions.twilio-call-handler]
 verify_jwt = false
+
+[functions.twilio-media-stream]
+verify_jwt = false
+
+[functions.twilio-test-call]
+verify_jwt = false
