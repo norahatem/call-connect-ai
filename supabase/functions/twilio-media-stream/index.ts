@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/base64.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
 /**
  * Twilio Media Streams WebSocket Handler
@@ -14,6 +15,11 @@ import { encode as base64Encode } from "https://deno.land/std@0.168.0/encoding/b
 
 const ELEVENLABS_API_KEY = Deno.env.get("ELEVENLABS_API_KEY");
 const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const SUPABASE_SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+
+// Create Supabase client for realtime broadcasts
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
 
 // μ-law to linear PCM conversion table
 const ULAW_TO_LINEAR: number[] = [];
@@ -236,6 +242,9 @@ async function processAudioAndRespond(socket: WebSocket, context: CallContext) {
     
     console.log("Provider said:", transcription);
     
+    // Broadcast user transcription to frontend
+    await broadcastTranscript(context.callSid, "user", transcription);
+    
     // Add to conversation history
     context.conversationHistory.push({
       role: "user",
@@ -283,6 +292,9 @@ async function generateAndSendAudio(socket: WebSocket, context: CallContext, isI
     // Generate AI message
     const aiMessage = await generateAIResponse(context, isInitial);
     console.log("AI says:", aiMessage);
+    
+    // Broadcast AI response to frontend
+    await broadcastTranscript(context.callSid, "ai", aiMessage);
     
     // Add to history
     context.conversationHistory.push({
@@ -476,5 +488,23 @@ function createWav(pcmData: Int16Array, sampleRate: number): ArrayBuffer {
 function writeString(view: DataView, offset: number, str: string) {
   for (let i = 0; i < str.length; i++) {
     view.setUint8(offset + i, str.charCodeAt(i));
+  }
+}
+
+// Broadcast transcript updates to frontend via Supabase Realtime
+async function broadcastTranscript(callSid: string, speaker: "ai" | "user", text: string) {
+  try {
+    const channel = supabase.channel(`call:${callSid}`);
+    await channel.send({
+      type: "broadcast",
+      event: "transcript",
+      payload: {
+        speaker,
+        text,
+        timestamp: Date.now(),
+      },
+    });
+  } catch (error) {
+    console.error("Failed to broadcast transcript:", error);
   }
 }

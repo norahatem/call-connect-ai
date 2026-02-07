@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Phone, PhoneCall, PhoneOff, Loader2, Mic, Volume2 } from "lucide-react";
+import { Phone, PhoneCall, PhoneOff, Loader2, Mic, Volume2, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface TranscriptEntry {
   speaker: "ai" | "user";
@@ -18,6 +19,37 @@ export default function VoiceTest() {
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Subscribe to realtime transcript updates when we have a callSid
+  useEffect(() => {
+    if (!callSid) return;
+
+    console.log("Subscribing to call channel:", callSid);
+    
+    const channel = supabase
+      .channel(`call:${callSid}`)
+      .on("broadcast", { event: "transcript" }, (payload) => {
+        console.log("Received transcript:", payload);
+        const { speaker, text, timestamp } = payload.payload;
+        setTranscript((prev) => [...prev, { speaker, text, timestamp }]);
+      })
+      .subscribe((status) => {
+        console.log("Channel subscription status:", status);
+      });
+
+    return () => {
+      console.log("Unsubscribing from call channel");
+      supabase.removeChannel(channel);
+    };
+  }, [callSid]);
+
+  // Auto-scroll to bottom when new transcript entries arrive
+  useEffect(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    }
+  }, [transcript]);
 
   const initiateCall = async () => {
     setIsLoading(true);
@@ -45,11 +77,11 @@ export default function VoiceTest() {
         setCallStatus("connected");
         console.log("Call initiated:", data);
         
-        // Add a simulated transcript entry for now
+        // Clear transcript and add status message
         setTranscript([
           {
             speaker: "ai",
-            text: "Call connected! Waiting for audio stream...",
+            text: "📞 Call connected! Listening for audio...",
             timestamp: Date.now(),
           },
         ]);
@@ -155,9 +187,27 @@ export default function VoiceTest() {
         {/* Live Transcript Card */}
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Mic className="h-5 w-5" />
-              Live Transcript
+            <CardTitle className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Mic className="h-5 w-5" />
+                Live Transcript
+                {callStatus === "connected" && (
+                  <span className="flex items-center gap-1 text-xs text-green-500 font-normal">
+                    <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
+                    Live
+                  </span>
+                )}
+              </div>
+              {transcript.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setTranscript([])}
+                  className="text-muted-foreground"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              )}
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -167,29 +217,31 @@ export default function VoiceTest() {
                 <p>Transcript will appear here during the call</p>
               </div>
             ) : (
-              <div className="space-y-3 max-h-[400px] overflow-y-auto">
-                {transcript.map((entry, index) => (
-                  <div
-                    key={index}
-                    className={`flex gap-3 ${
-                      entry.speaker === "ai" ? "justify-start" : "justify-end"
-                    }`}
-                  >
+              <ScrollArea className="h-[400px] pr-4" ref={scrollRef}>
+                <div className="space-y-3">
+                  {transcript.map((entry, index) => (
                     <div
-                      className={`max-w-[80%] p-3 rounded-lg ${
-                        entry.speaker === "ai"
-                          ? "bg-primary/10 text-foreground"
-                          : "bg-secondary text-secondary-foreground"
+                      key={index}
+                      className={`flex gap-3 ${
+                        entry.speaker === "ai" ? "justify-start" : "justify-end"
                       }`}
                     >
-                      <p className="text-xs font-semibold mb-1 opacity-70">
-                        {entry.speaker === "ai" ? "🤖 AI Assistant" : "👤 You"}
-                      </p>
-                      <p className="text-sm">{entry.text}</p>
+                      <div
+                        className={`max-w-[80%] p-3 rounded-lg ${
+                          entry.speaker === "ai"
+                            ? "bg-primary/10 text-foreground"
+                            : "bg-secondary text-secondary-foreground"
+                        }`}
+                      >
+                        <p className="text-xs font-semibold mb-1 opacity-70">
+                          {entry.speaker === "ai" ? "🤖 AI Assistant" : "👤 You"}
+                        </p>
+                        <p className="text-sm">{entry.text}</p>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              </ScrollArea>
             )}
           </CardContent>
         </Card>
