@@ -30,8 +30,16 @@ serve(async (req) => {
     const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
     
+    console.log(`Using TWILIO_SID: ${TWILIO_SID?.substring(0, 6)}...${TWILIO_SID?.substring(TWILIO_SID.length - 4)}`);
+    console.log(`Auth token configured: ${TWILIO_AUTH_TOKEN ? 'YES' : 'NO'}`);
+    
     if (!TWILIO_SID || !TWILIO_AUTH_TOKEN) {
       throw new Error("Twilio credentials are not configured (need TWILIO_SID and TWILIO_AUTH_TOKEN)");
+    }
+    
+    // Validate SID format - Account SID starts with "AC"
+    if (!TWILIO_SID.startsWith("AC")) {
+      throw new Error(`Invalid TWILIO_SID format: ${TWILIO_SID.substring(0, 6)}... - Account SID should start with 'AC'. You may have entered an API Key SID (starts with 'SK') instead.`);
     }
     
     if (!toNumber) {
