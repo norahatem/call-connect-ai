@@ -13,6 +13,7 @@ import BookingConfirmation from "./pages/booking/Confirmation";
 import BookingHistory from "./pages/booking/History";
 import Settings from "./pages/settings/Settings";
 import VoiceTest from "./pages/testing/VoiceTest";
+import VoiceAgentTest from "./pages/testing/VoiceAgentTest";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -34,6 +35,7 @@ const App = () => (
             <Route path="/bookings" element={<BookingHistory />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/test-voice" element={<VoiceTest />} />
+            <Route path="/test-agent" element={<VoiceAgentTest />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </BrowserRouter>
