@@ -27,11 +27,11 @@ serve(async (req) => {
     } = await req.json();
     
     const TWILIO_SID = Deno.env.get("TWILIO_SID");
-    const TWILIO_API_KEY = Deno.env.get("TWILIO_API_KEY");
+    const TWILIO_AUTH_TOKEN = Deno.env.get("TWILIO_AUTH_TOKEN");
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
     
-    if (!TWILIO_SID || !TWILIO_API_KEY) {
-      throw new Error("Twilio credentials are not configured");
+    if (!TWILIO_SID || !TWILIO_AUTH_TOKEN) {
+      throw new Error("Twilio credentials are not configured (need TWILIO_SID and TWILIO_AUTH_TOKEN)");
     }
     
     if (!toNumber) {
@@ -40,7 +40,7 @@ serve(async (req) => {
 
     console.log(`Initiating test call to ${toNumber}`);
 
-    const twilioAuth = btoa(`${TWILIO_SID}:${TWILIO_API_KEY}`);
+    const twilioAuth = btoa(`${TWILIO_SID}:${TWILIO_AUTH_TOKEN}`);
     const twilioBaseUrl = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}`;
 
     // Build the WebSocket URL for Media Streams
@@ -67,6 +67,7 @@ serve(async (req) => {
 
     // For testing, we need a Twilio phone number to call FROM
     // First, get our Twilio phone numbers
+    console.log(`Fetching phone numbers from: ${twilioBaseUrl}/IncomingPhoneNumbers.json`);
     const numbersResponse = await fetch(
       `${twilioBaseUrl}/IncomingPhoneNumbers.json?PageSize=1`,
       {
@@ -76,9 +77,14 @@ serve(async (req) => {
     );
     
     const numbersData = await numbersResponse.json();
+    console.log('Twilio numbers response:', JSON.stringify(numbersData));
+    
+    if (!numbersResponse.ok) {
+      throw new Error(`Twilio API error: ${numbersData.message || JSON.stringify(numbersData)}`);
+    }
     
     if (!numbersData.incoming_phone_numbers || numbersData.incoming_phone_numbers.length === 0) {
-      throw new Error('No Twilio phone number found. Please purchase a Twilio number to make outbound calls.');
+      throw new Error('No Twilio phone number found in your account. Please ensure the phone number is purchased and voice-enabled.');
     }
     
     const fromNumber = numbersData.incoming_phone_numbers[0].phone_number;
