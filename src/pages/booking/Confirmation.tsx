@@ -31,17 +31,22 @@ export default function BookingConfirmationPage() {
   const [showTranscript, setShowTranscript] = useState(false);
 
   useEffect(() => {
-    if (!searchId || !user) return;
+    if (!user) return;
 
     const loadBooking = async () => {
-      // Get the most recent booking for this search
-      const { data: bookingData } = await supabase
+      // Get the most recent booking for this user
+      const { data: bookingData, error: bookingError } = await supabase
         .from('bookings')
         .select('*')
         .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
+
+      if (bookingError) {
+        console.error('Error loading booking:', bookingError);
+        return;
+      }
 
       if (bookingData) {
         setBooking(bookingData as unknown as Booking);
@@ -51,7 +56,7 @@ export default function BookingConfirmationPage() {
           .from('providers')
           .select('*')
           .eq('id', bookingData.provider_id)
-          .single();
+          .maybeSingle();
 
         if (providerData) {
           setProvider(providerData as unknown as Provider);
@@ -62,26 +67,26 @@ export default function BookingConfirmationPage() {
           .from('calls')
           .select('*')
           .eq('id', bookingData.call_id)
-          .single();
+          .maybeSingle();
 
         if (callData) {
           setCall(callData as unknown as Call);
         }
+
+        // Trigger confetti on mount
+        setTimeout(() => {
+          confetti({
+            particleCount: 150,
+            spread: 100,
+            origin: { y: 0.4 },
+            colors: ['#10b981', '#3b82f6', '#ffffff', '#8b5cf6']
+          });
+        }, 500);
       }
     };
 
     loadBooking();
-
-    // Trigger confetti on mount
-    setTimeout(() => {
-      confetti({
-        particleCount: 150,
-        spread: 100,
-        origin: { y: 0.4 },
-        colors: ['#10b981', '#3b82f6', '#ffffff', '#8b5cf6']
-      });
-    }, 500);
-  }, [searchId, user]);
+  }, [user]);
 
   const generateICS = () => {
     if (!booking || !provider) return;
@@ -117,10 +122,16 @@ END:VCALENDAR`;
 
   if (!booking || !provider) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-4">
+        <div className="text-center max-w-md">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4" />
-          <p className="text-muted-foreground">Loading booking details...</p>
+          <p className="text-muted-foreground mb-4">Loading booking details...</p>
+          <p className="text-sm text-muted-foreground mb-6">
+            If this takes too long, the booking may still be processing.
+          </p>
+          <Button variant="outline" onClick={() => navigate('/dashboard')}>
+            Return to Dashboard
+          </Button>
         </div>
       </div>
     );
