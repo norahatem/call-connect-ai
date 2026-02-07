@@ -10,6 +10,7 @@ import Login from "./pages/auth/Login";
 import Signup from "./pages/auth/Signup";
 import WarRoom from "./pages/calling/WarRoom";
 import BookingConfirmation from "./pages/booking/Confirmation";
+import BookingHistory from "./pages/booking/History";
 import Settings from "./pages/settings/Settings";
 import NotFound from "./pages/NotFound";
 
@@ -29,6 +30,7 @@ const App = () => (
             <Route path="/auth/signup" element={<Signup />} />
             <Route path="/calling/:searchId" element={<WarRoom />} />
             <Route path="/booking/:searchId" element={<BookingConfirmation />} />
+            <Route path="/bookings" element={<BookingHistory />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="*" element={<NotFound />} />
           </Routes>

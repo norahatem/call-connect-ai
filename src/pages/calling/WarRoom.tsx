@@ -163,18 +163,56 @@ export default function WarRoomPage() {
       });
 
       // Create booking in database
-      const provider = providers.find(p => p.id === providerId);
       const state = callStates.get(providerId);
       
-      if (state?.confirmationCode && state?.availableSlot) {
-        supabase.from('bookings').insert({
-          user_id: user?.id,
-          call_id: call.id,
-          provider_id: providerId,
-          appointment_time: state.availableSlot.toISOString(),
-          confirmation_code: state.confirmationCode
-        });
-      }
+      const createBooking = async () => {
+        if (!state?.confirmationCode || !state?.availableSlot || !user?.id || !searchId) {
+          console.error('Missing data for booking:', { state, userId: user?.id, searchId });
+          return;
+        }
+
+        try {
+          // First create the call record in the database
+          const { data: callData, error: callError } = await supabase
+            .from('calls')
+            .insert([{
+              search_id: searchId,
+              provider_id: providerId,
+              status: 'success',
+              transcript: call.transcript as unknown as null,
+              duration: state.duration || call.duration,
+              available_slot: state.availableSlot.toISOString(),
+            }])
+            .select()
+            .single();
+
+          if (callError) {
+            console.error('Error creating call:', callError);
+            return;
+          }
+
+          // Then create the booking
+          const { error: bookingError } = await supabase
+            .from('bookings')
+            .insert({
+              user_id: user.id,
+              call_id: callData.id,
+              provider_id: providerId,
+              appointment_time: state.availableSlot.toISOString(),
+              confirmation_code: state.confirmationCode,
+            });
+
+          if (bookingError) {
+            console.error('Error creating booking:', bookingError);
+          } else {
+            console.log('Booking created successfully');
+          }
+        } catch (err) {
+          console.error('Error in booking creation:', err);
+        }
+      };
+
+      createBooking();
 
       // Celebration!
       confetti({

@@ -112,8 +112,18 @@ export default function DashboardPage() {
             <Button
               variant="ghost"
               size="icon"
+              onClick={() => navigate('/bookings')}
+              className="text-muted-foreground hover:text-foreground"
+              title="Booking history"
+            >
+              <History className="h-5 w-5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
               onClick={() => navigate('/settings')}
               className="text-muted-foreground hover:text-foreground"
+              title="Settings"
             >
               <Settings className="h-5 w-5" />
             </Button>
