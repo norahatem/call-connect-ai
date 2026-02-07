@@ -11,3 +11,12 @@ verify_jwt = false
 
 [functions.ai-call-orchestrator]
 verify_jwt = false
+
+[functions.twilio-verify-phone]
+verify_jwt = false
+
+[functions.twilio-make-call]
+verify_jwt = false
+
+[functions.twilio-call-handler]
+verify_jwt = false
