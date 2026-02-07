@@ -253,44 +253,59 @@ export function useAICall(options: UseAICallOptions = {}) {
           for (let i = 0; i < 4; i++) confirmationCode += numbers[Math.floor(Math.random() * numbers.length)];
         }
 
-        updateCallState(providerId, { 
+        const successResult: CallState = { 
           status: 'success',
+          transcript: conversationHistory,
           availableSlot: slotDate,
           confirmationCode,
           duration: turn * 8,
-        });
+        };
+        updateCallState(providerId, successResult);
+        options.onCallComplete?.(providerId, successResult);
       } else if (callStatus === 'closed') {
-        updateCallState(providerId, { 
+        const closedResult: CallState = { 
           status: 'failed',
+          transcript: conversationHistory,
           failureReason: 'Business closed',
           duration: turn * 8,
-        });
+        };
+        updateCallState(providerId, closedResult);
+        options.onCallComplete?.(providerId, closedResult);
       } else if (callStatus === 'unavailable') {
-        updateCallState(providerId, { 
+        const unavailableResult: CallState = { 
           status: 'failed',
+          transcript: conversationHistory,
           failureReason: 'Fully booked',
           duration: turn * 8,
-        });
+        };
+        updateCallState(providerId, unavailableResult);
+        options.onCallComplete?.(providerId, unavailableResult);
       } else {
-        updateCallState(providerId, { 
+        const failedResult: CallState = { 
           status: 'failed',
+          transcript: conversationHistory,
           failureReason: 'Could not complete booking',
           duration: turn * 8,
-        });
+        };
+        updateCallState(providerId, failedResult);
+        options.onCallComplete?.(providerId, failedResult);
       }
-
-      options.onCallComplete?.(providerId, callStates.get(providerId)!);
     } catch (error) {
       if ((error as Error).name === 'AbortError') {
-        updateCallState(providerId, { status: 'cancelled' });
+        const cancelledResult: CallState = { status: 'cancelled', transcript: [], duration: 0 };
+        updateCallState(providerId, cancelledResult);
+        options.onCallComplete?.(providerId, cancelledResult);
       } else {
         console.error('Call failed:', error);
-        updateCallState(providerId, { 
+        const errorResult: CallState = { 
           status: 'failed', 
+          transcript: [],
           failureReason: 'Technical error',
-        });
+          duration: 0,
+        };
+        updateCallState(providerId, errorResult);
+        options.onCallComplete?.(providerId, errorResult);
       }
-      options.onCallComplete?.(providerId, callStates.get(providerId)!);
     }
   }, [updateCallState, addTranscriptLine, playAudio, options]);
 
