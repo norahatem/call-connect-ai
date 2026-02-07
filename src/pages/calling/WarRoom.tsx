@@ -32,6 +32,7 @@ export default function WarRoomPage() {
     setIsAudioEnabled 
   } = useAICall({
     onCallComplete: useCallback((providerId: string, result) => {
+      if (!result) return;
       // Sync result to calls state
       setCalls(prev => {
         const newCalls = new Map(prev);
@@ -40,8 +41,8 @@ export default function WarRoomPage() {
           newCalls.set(providerId, {
             ...call,
             status: result.status,
-            transcript: result.transcript,
-            duration: result.duration,
+            transcript: result.transcript || [],
+            duration: result.duration || 0,
             available_slot: result.availableSlot?.toISOString(),
             failure_reason: result.failureReason,
             updated_at: new Date().toISOString(),
@@ -70,6 +71,7 @@ export default function WarRoomPage() {
   // Sync callStates to calls
   useEffect(() => {
     callStates.forEach((state, providerId) => {
+      if (!state) return;
       setCalls(prev => {
         const newCalls = new Map(prev);
         const call = newCalls.get(providerId);
@@ -77,8 +79,8 @@ export default function WarRoomPage() {
           newCalls.set(providerId, {
             ...call,
             status: state.status,
-            transcript: state.transcript,
-            duration: state.duration,
+            transcript: state.transcript || [],
+            duration: state.duration || 0,
             available_slot: state.availableSlot?.toISOString(),
             failure_reason: state.failureReason,
             updated_at: new Date().toISOString(),
