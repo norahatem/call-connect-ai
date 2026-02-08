@@ -2,11 +2,12 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
-import { ArrowLeft, Zap, CheckCircle2, Volume2, VolumeX, Shield, Download, FileText } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Zap, CheckCircle2, Volume2, VolumeX, Shield, Download, FileText, MessageSquareText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { EnhancedProviderCard } from '@/components/providers/EnhancedProviderCard';
 import { ConflictPreventionBadge } from '@/components/calling/ConflictPreventionBadge';
+import { TranscriptReviewPanel } from '@/components/calling/TranscriptReviewPanel';
 import { useAuth } from '@/hooks/useAuth';
 import { useAICall } from '@/hooks/useAICall';
 import { useCallTranscriptLog } from '@/hooks/useCallTranscriptLog';
@@ -51,6 +52,7 @@ export default function WarRoomPage() {
   const [calls, setCalls] = useState<Map<string, Call>>(new Map());
   const [shuttingDownProviders, setShuttingDownProviders] = useState<Set<string>>(new Set());
   const [isDemo, setIsDemo] = useState(false);
+  const [showTranscriptPanel, setShowTranscriptPanel] = useState(false);
   
   // WINNER LOCK: Use ref for immediate, synchronous lock to prevent race conditions
   const confirmedBookingRef = useRef<{ providerId: string; call: Call } | null>(null);
@@ -462,11 +464,9 @@ export default function WarRoomPage() {
         colors: ['#10b981', '#3b82f6', '#ffffff']
       });
 
-      setTimeout(() => {
-        navigate(`/booking/${searchId}`);
-      }, 3000);
+      // Don't auto-redirect - let user view transcripts and click continue manually
     }
-  }, [calls, winnerProviderId, cancelAllCalls, callStates, providers, user, navigate, searchId, logAllCalls]);
+  }, [calls, winnerProviderId, cancelAllCalls, callStates, providers, user, navigate, searchId, logAllCalls, showTranscriptPanel]);
 
   // Start calling sequence - Race up to 15 calls
   useEffect(() => {
@@ -560,17 +560,17 @@ export default function WarRoomPage() {
               />
             )}
             
-            {/* Export Transcripts Button */}
-            {transcriptLog.length > 0 && (
+            {/* View Transcripts Button - shows after winner declared */}
+            {(transcriptLog.length > 0 || winnerProviderId) && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={exportLog}
+                onClick={() => setShowTranscriptPanel(true)}
                 className="gap-2 border-primary/30 hover:border-primary"
-                title="Download all call transcripts"
+                title="View all call transcripts"
               >
-                <Download className="h-4 w-4" />
-                <span className="hidden sm:inline">Export Logs</span>
+                <MessageSquareText className="h-4 w-4" />
+                <span className="hidden sm:inline">View Transcripts</span>
               </Button>
             )}
             
@@ -610,6 +610,14 @@ export default function WarRoomPage() {
                 <>
                   <CheckCircle2 className="h-4 w-4 text-success" />
                   <span className="text-sm font-medium text-success">Booking secured!</span>
+                  <Button
+                    size="sm"
+                    onClick={() => navigate(`/booking/${searchId}`)}
+                    className="ml-2 gap-2"
+                  >
+                    Continue
+                    <ArrowRight className="h-4 w-4" />
+                  </Button>
                 </>
               ) : (
                 <span className="text-sm text-muted-foreground">Calls completed</span>
@@ -696,6 +704,16 @@ export default function WarRoomPage() {
           </AnimatePresence>
         </div>
       </main>
+      
+      {/* Transcript Review Panel */}
+      <TranscriptReviewPanel
+        isOpen={showTranscriptPanel}
+        onClose={() => setShowTranscriptPanel(false)}
+        calls={calls}
+        providers={providers}
+        winnerId={winnerProviderId}
+        onExport={exportLog}
+      />
     </div>
   );
 }
