@@ -23,7 +23,9 @@ serve(async (req) => {
     }
 
     console.log(`Getting conversation token for agent: ${agentId}`);
+    console.log(`Context:`, JSON.stringify(context));
 
+    // Use the conversation token endpoint for WebRTC (preferred)
     const response = await fetch(
       `https://api.elevenlabs.io/v1/convai/conversation/get-signed-url?agent_id=${agentId}`,
       {
@@ -36,7 +38,15 @@ serve(async (req) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("ElevenLabs API error:", response.status, errorText);
-      throw new Error(`ElevenLabs API error: ${response.status}`);
+      
+      // Check for specific errors
+      if (response.status === 401) {
+        throw new Error("Invalid ElevenLabs API key");
+      } else if (response.status === 404) {
+        throw new Error("Agent not found. Please check the agent ID.");
+      }
+      
+      throw new Error(`ElevenLabs API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json();
