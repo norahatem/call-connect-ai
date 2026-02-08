@@ -1,20 +1,21 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Bot, User, Calendar, Check, ArrowLeft, Loader2, Phone } from 'lucide-react';
+import { Send, Bot, User, Calendar, Check, ArrowLeft, Loader2, Phone, Mic, MicOff, Volume2, VolumeX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { Logo } from '@/components/ui/logo';
 import { useToast } from '@/hooks/use-toast';
+import { useVoiceMode } from '@/hooks/useVoiceMode';
 import { 
   checkAvailability, 
   bookAppointment, 
   parseTimeSlot, 
   formatSlot,
-  getAvailableSlots,
-  getCalendarEvents
 } from '@/lib/mock-calendar';
 import { supabase } from '@/integrations/supabase/client';
 
@@ -23,10 +24,6 @@ interface Message {
   role: 'agent' | 'receptionist' | 'system';
   content: string;
   timestamp: Date;
-  toolCall?: {
-    name: string;
-    result: any;
-  };
 }
 
 // Mock provider for testing
@@ -69,10 +66,48 @@ export default function TextAgentTest() {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const initialSpokenRef = useRef(false);
+
+  // Voice mode hook
+  const handleVoiceTranscript = useCallback((text: string) => {
+    console.log('Voice transcript received:', text);
+    setInput(text);
+    // Auto-send after transcript
+    setTimeout(() => {
+      const fakeEvent = { preventDefault: () => {} } as React.FormEvent;
+      handleSendWithText(text);
+    }, 100);
+  }, []);
+
+  const {
+    isVoiceEnabled,
+    isListening,
+    isSpeaking,
+    partialText,
+    toggleVoiceMode,
+    startListening,
+    stopListening,
+    speak,
+    stopSpeaking,
+  } = useVoiceMode({
+    onTranscript: handleVoiceTranscript,
+    onError: (error) => toast({ title: 'Voice Error', description: error, variant: 'destructive' }),
+  });
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Speak the initial agent message when voice mode is enabled
+  useEffect(() => {
+    if (isVoiceEnabled && !initialSpokenRef.current && messages.length >= 2) {
+      const initialAgentMessage = messages.find(m => m.role === 'agent');
+      if (initialAgentMessage) {
+        initialSpokenRef.current = true;
+        speak(initialAgentMessage.content);
+      }
+    }
+  }, [isVoiceEnabled, messages, speak]);
 
   // Client tools - these check the USER's (client's) calendar
   const executeTools = async (toolCalls: Array<{name: string, params: any}>) => {
@@ -145,14 +180,19 @@ export default function TextAgentTest() {
     return results;
   };
 
-  const handleSend = async () => {
-    if (!input.trim() || isLoading) return;
+  const handleSendWithText = async (textToSend: string) => {
+    if (!textToSend.trim() || isLoading) return;
+
+    // Stop listening while processing
+    if (isListening) {
+      stopListening();
+    }
 
     // User's message is from the "receptionist" perspective
     const receptionistMessage: Message = {
       id: Date.now().toString(),
       role: 'receptionist',
-      content: input.trim(),
+      content: textToSend.trim(),
       timestamp: new Date(),
     };
 
@@ -170,7 +210,7 @@ export default function TextAgentTest() {
       // First call: Get agent's initial response
       const response = await supabase.functions.invoke('text-agent-chat', {
         body: {
-          receptionistMessage: input.trim(),
+          receptionistMessage: textToSend.trim(),
           provider: mockProvider,
           user: mockUser,
           conversationHistory,
@@ -205,7 +245,7 @@ export default function TextAgentTest() {
             user: mockUser,
             conversationHistory: [
               ...conversationHistory,
-              { role: 'user', content: input.trim() },
+              { role: 'user', content: textToSend.trim() },
             ],
             toolResults,
           },
@@ -226,6 +266,11 @@ export default function TextAgentTest() {
 
       setMessages(prev => [...prev, agentMessage]);
 
+      // Speak the response if voice mode is enabled
+      if (isVoiceEnabled) {
+        speak(agentResponse);
+      }
+
     } catch (error) {
       console.error('Chat error:', error);
       
@@ -237,10 +282,24 @@ export default function TextAgentTest() {
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, fallbackMessage]);
+      
+      if (isVoiceEnabled) {
+        speak(fallbackMessage.content);
+      }
     } finally {
       setIsLoading(false);
+      
+      // Resume listening if voice mode is enabled
+      if (isVoiceEnabled && !isSpeaking) {
+        setTimeout(() => startListening(), 500);
+      }
+      
       inputRef.current?.focus();
     }
+  };
+
+  const handleSend = async () => {
+    await handleSendWithText(input);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -251,6 +310,9 @@ export default function TextAgentTest() {
   };
 
   const resetConversation = () => {
+    stopSpeaking();
+    stopListening();
+    initialSpokenRef.current = false;
     setMessages([
       {
         id: '0',
@@ -268,6 +330,27 @@ export default function TextAgentTest() {
     setBookingResult(null);
   };
 
+  const handleVoiceModeToggle = (enabled: boolean) => {
+    toggleVoiceMode(enabled);
+    if (enabled) {
+      // Speak initial message
+      const initialAgentMessage = messages.find(m => m.role === 'agent');
+      if (initialAgentMessage) {
+        speak(initialAgentMessage.content);
+      }
+    }
+  };
+
+  // Start listening after AI finishes speaking
+  useEffect(() => {
+    if (isVoiceEnabled && !isSpeaking && !isLoading && !isListening) {
+      const timer = setTimeout(() => {
+        startListening();
+      }, 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isVoiceEnabled, isSpeaking, isLoading, isListening, startListening]);
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
@@ -281,7 +364,19 @@ export default function TextAgentTest() {
             </Link>
             <Logo size="sm" />
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
+            {/* Voice Mode Toggle */}
+            <div className="flex items-center gap-2">
+              <Switch
+                id="voice-mode"
+                checked={isVoiceEnabled}
+                onCheckedChange={handleVoiceModeToggle}
+              />
+              <Label htmlFor="voice-mode" className="text-sm flex items-center gap-1">
+                {isVoiceEnabled ? <Volume2 className="h-4 w-4" /> : <VolumeX className="h-4 w-4" />}
+                Voice
+              </Label>
+            </div>
             <Badge variant="secondary" className="gap-1">
               <Phone className="h-3 w-3" />
               Call Simulation
@@ -308,6 +403,26 @@ export default function TextAgentTest() {
             <p className="text-xs opacity-70">
               Respond as a receptionist would. Offer appointment times, ask for details, confirm bookings with a code.
             </p>
+            {isVoiceEnabled && (
+              <div className="flex items-center gap-2 mt-2 p-2 bg-primary/10 rounded-lg">
+                {isSpeaking ? (
+                  <>
+                    <Volume2 className="h-4 w-4 text-primary animate-pulse" />
+                    <span className="text-xs text-primary">AI is speaking...</span>
+                  </>
+                ) : isListening ? (
+                  <>
+                    <Mic className="h-4 w-4 text-green-500 animate-pulse" />
+                    <span className="text-xs text-green-500">Listening... {partialText && `"${partialText}"`}</span>
+                  </>
+                ) : (
+                  <>
+                    <MicOff className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-xs text-muted-foreground">Voice ready</span>
+                  </>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -400,21 +515,53 @@ export default function TextAgentTest() {
         {/* Input - You are the receptionist */}
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground text-center">
-            You're the receptionist. Respond to the AI agent's booking request.
+            {isVoiceEnabled 
+              ? "Voice mode: Just speak your response when listening" 
+              : "You're the receptionist. Respond to the AI agent's booking request."}
           </p>
           <div className="flex gap-2">
-            <Input
-              ref={inputRef}
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyPress={handleKeyPress}
-              placeholder="e.g., 'We have 2pm tomorrow available' or 'Confirmed! Code is AB1234'"
-              className="flex-1"
-              disabled={isLoading}
-            />
-            <Button onClick={handleSend} disabled={!input.trim() || isLoading}>
-              <Send className="h-4 w-4" />
-            </Button>
+            {isVoiceEnabled ? (
+              <>
+                <Button 
+                  variant={isListening ? "destructive" : "default"}
+                  className="flex-1"
+                  onClick={() => isListening ? stopListening() : startListening()}
+                  disabled={isSpeaking || isLoading}
+                >
+                  {isListening ? (
+                    <>
+                      <MicOff className="h-4 w-4 mr-2" />
+                      Stop Listening
+                    </>
+                  ) : (
+                    <>
+                      <Mic className="h-4 w-4 mr-2" />
+                      {isSpeaking ? 'AI Speaking...' : 'Start Listening'}
+                    </>
+                  )}
+                </Button>
+                {isSpeaking && (
+                  <Button variant="outline" onClick={stopSpeaking}>
+                    <VolumeX className="h-4 w-4" />
+                  </Button>
+                )}
+              </>
+            ) : (
+              <>
+                <Input
+                  ref={inputRef}
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="e.g., 'We have 2pm tomorrow available' or 'Confirmed! Code is AB1234'"
+                  className="flex-1"
+                  disabled={isLoading}
+                />
+                <Button onClick={handleSend} disabled={!input.trim() || isLoading}>
+                  <Send className="h-4 w-4" />
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </main>
