@@ -1,6 +1,19 @@
 export type CallStatus = 'queued' | 'dialing' | 'connected' | 'in_progress' | 'success' | 'failed' | 'no_answer' | 'cancelled';
 export type SearchStatus = 'pending' | 'discovering' | 'calling' | 'completed' | 'cancelled';
 export type BookingStatus = 'confirmed' | 'cancelled' | 'completed';
+export type BookingMode = 'single' | 'multi';
+export type SearchStage = 'discovery' | 'ranking' | 'confirmation' | 'booking' | 'completed';
+
+export interface VoicePreference {
+  gender: 'male' | 'female' | 'neutral';
+  accent: 'neutral' | 'british' | 'american' | 'australian' | 'indian';
+}
+
+export interface ScoringWeight {
+  id: string;
+  criterion: string;
+  weight: number; // 1-10
+}
 
 export interface Profile {
   id: string;
@@ -27,6 +40,15 @@ export interface Provider {
   created_at: string;
 }
 
+export interface RankedResult {
+  provider_id: string;
+  provider_name: string;
+  ai_score: number;
+  available_slot?: string;
+  notes?: string;
+  user_selected?: boolean;
+}
+
 export interface Search {
   id: string;
   user_id: string;
@@ -36,8 +58,16 @@ export interface Search {
     purpose?: string;
     details?: string;
     time_preference?: string;
+    category?: string;
+    intake_data?: Record<string, string>;
   };
   status: SearchStatus;
+  booking_mode: BookingMode;
+  stage: SearchStage;
+  additional_requirements?: string;
+  voice_preference: VoicePreference;
+  scoring_weights: ScoringWeight[];
+  ranked_results: RankedResult[];
   created_at: string;
 }
 
@@ -60,6 +90,8 @@ export interface Call {
   available_slot?: string;
   duration: number;
   failure_reason?: string;
+  ai_score?: number;
+  user_selected?: boolean;
   created_at: string;
   updated_at: string;
   provider?: Provider;

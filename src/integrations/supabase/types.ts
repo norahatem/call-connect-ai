@@ -67,6 +67,7 @@ export type Database = {
       }
       calls: {
         Row: {
+          ai_score: number | null
           available_slot: string | null
           created_at: string
           duration: number | null
@@ -78,8 +79,10 @@ export type Database = {
           status: string
           transcript: Json | null
           updated_at: string
+          user_selected: boolean | null
         }
         Insert: {
+          ai_score?: number | null
           available_slot?: string | null
           created_at?: string
           duration?: number | null
@@ -91,8 +94,10 @@ export type Database = {
           status?: string
           transcript?: Json | null
           updated_at?: string
+          user_selected?: boolean | null
         }
         Update: {
+          ai_score?: number | null
           available_slot?: string | null
           created_at?: string
           duration?: number | null
@@ -104,6 +109,7 @@ export type Database = {
           status?: string
           transcript?: Json | null
           updated_at?: string
+          user_selected?: boolean | null
         }
         Relationships: [
           {
@@ -207,31 +213,49 @@ export type Database = {
       }
       searches: {
         Row: {
+          additional_requirements: string | null
+          booking_mode: string | null
           created_at: string
           id: string
           location: string
           preferences: Json | null
+          ranked_results: Json | null
+          scoring_weights: Json | null
           service: string
+          stage: string | null
           status: string
           user_id: string
+          voice_preference: Json | null
         }
         Insert: {
+          additional_requirements?: string | null
+          booking_mode?: string | null
           created_at?: string
           id?: string
           location: string
           preferences?: Json | null
+          ranked_results?: Json | null
+          scoring_weights?: Json | null
           service: string
+          stage?: string | null
           status?: string
           user_id: string
+          voice_preference?: Json | null
         }
         Update: {
+          additional_requirements?: string | null
+          booking_mode?: string | null
           created_at?: string
           id?: string
           location?: string
           preferences?: Json | null
+          ranked_results?: Json | null
+          scoring_weights?: Json | null
           service?: string
+          stage?: string | null
           status?: string
           user_id?: string
+          voice_preference?: Json | null
         }
         Relationships: []
       }
