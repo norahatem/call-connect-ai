@@ -112,6 +112,13 @@ export function bookAppointment(
 }
 
 /**
+ * Get all calendar events
+ */
+export function getCalendarEvents(): CalendarEvent[] {
+  return [...mockEvents];
+}
+
+/**
  * Parse a natural language date/time into a Date object
  */
 export function parseTimeSlot(text: string): Date | null {
