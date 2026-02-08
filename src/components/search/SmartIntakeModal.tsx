@@ -49,6 +49,7 @@ export function SmartIntakeModal({
   const [formData, setFormData] = useState<IntakeFormData>({});
   const [showOptional, setShowOptional] = useState(false);
   const [savedUserData, setSavedUserData] = useState<{ name?: string; dateOfBirth?: string }>({});
+  const [placeholderExample, setPlaceholderExample] = useState('');
 
   const { isAnalyzing, analysis, analyzeIntake, buildCompleteData, reset } = useSmartIntake();
 
@@ -77,16 +78,32 @@ export function SmartIntakeModal({
     loadProfileData();
   }, [open]);
 
-  // Reset when modal opens
+  // Reset when modal opens and generate dynamic placeholder
   useEffect(() => {
     if (open) {
       setStep('initial');
       setInitialDetails('');
       setFormData({});
       setShowOptional(false);
+      setPlaceholderExample('');
       reset();
+      
+      // Generate dynamic placeholder via LLM
+      const generatePlaceholder = async () => {
+        try {
+          const { data, error } = await supabase.functions.invoke('generate-intake-example', {
+            body: { service }
+          });
+          if (!error && data?.example) {
+            setPlaceholderExample(data.example);
+          }
+        } catch {
+          // Silently fail - placeholder is optional
+        }
+      };
+      generatePlaceholder();
     }
-  }, [open, reset]);
+  }, [open, reset, service]);
 
   const handleInitialSubmit = async () => {
     setStep('analyzing');
@@ -235,28 +252,6 @@ export function SmartIntakeModal({
     });
   };
 
-  // Dynamic placeholder examples based on service type
-  const getPlaceholderExample = () => {
-    const serviceLower = service.toLowerCase();
-    
-    if (serviceLower.includes('dentist') || serviceLower.includes('dental')) {
-      return 'e.g., "teeth cleaning" or "I have a toothache"';
-    }
-    if (serviceLower.includes('doctor') || serviceLower.includes('clinic') || serviceLower.includes('medical') || serviceLower.includes('physician')) {
-      return 'e.g., "annual checkup" or "I have a persistent headache"';
-    }
-    if (serviceLower.includes('mechanic') || serviceLower.includes('auto') || serviceLower.includes('car') || serviceLower.includes('garage')) {
-      return 'e.g., "oil change for my 2020 Honda Civic" or "brakes squeaking"';
-    }
-    if (serviceLower.includes('salon') || serviceLower.includes('haircut') || serviceLower.includes('barber') || serviceLower.includes('spa')) {
-      return 'e.g., "haircut and styling" or "manicure and pedicure"';
-    }
-    if (serviceLower.includes('restaurant') || serviceLower.includes('dinner') || serviceLower.includes('reservation')) {
-      return 'e.g., "dinner for 4 people" or "birthday celebration for 6"';
-    }
-    return `e.g., "I need help with..." or describe what you're looking for`;
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md bg-card border-border/50 max-h-[90vh] overflow-y-auto">
@@ -289,7 +284,7 @@ export function SmartIntakeModal({
                 <Textarea
                   value={initialDetails}
                   onChange={(e) => setInitialDetails(e.target.value)}
-                  placeholder={getPlaceholderExample()}
+                  placeholder={placeholderExample || `Describe what you need...`}
                   className="min-h-[120px] bg-background border-border/50"
                 />
                 <p className="text-xs text-muted-foreground">

@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.analyze-intake]
 verify_jwt = false
+
+[functions.generate-intake-example]
+verify_jwt = false
