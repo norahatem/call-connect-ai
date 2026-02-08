@@ -5,11 +5,12 @@ import { Settings, History, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { SearchBox } from '@/components/search/SearchBox';
-import { CallContextModal } from '@/components/search/CallContextModal';
+import { SmartIntakeModal } from '@/components/search/SmartIntakeModal';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { generateMockProviders } from '@/lib/mock-providers';
-import { CallContextData, Provider } from '@/types';
+import { Provider } from '@/types';
+import { IntakeFormData } from '@/types/intake';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -18,7 +19,7 @@ export default function DashboardPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchData, setSearchData] = useState<{ service: string; location: string } | null>(null);
   const [providers, setProviders] = useState<Omit<Provider, 'id' | 'created_at'>[]>([]);
-  const [showContextModal, setShowContextModal] = useState(false);
+  const [showIntakeModal, setShowIntakeModal] = useState(false);
   const [searchId, setSearchId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,20 +66,20 @@ export default function DashboardPage() {
       .select();
 
     if (insertedProviders) {
-      // Show context modal
+      // Show smart intake modal
       setIsSearching(false);
-      setShowContextModal(true);
+      setShowIntakeModal(true);
     }
   };
 
-  const handleStartCalling = async (context: CallContextData) => {
+  const handleIntakeComplete = async (intakeData: IntakeFormData, category: string) => {
     if (!searchId) return;
 
-    // Update search with preferences - cast to Json compatible object
+    // Build preferences with intake data
     const preferencesJson = {
-      purpose: context.purpose,
-      details: context.details,
-      time_preference: context.time_preference
+      category,
+      intake_data: intakeData,
+      time_preference: 'flexible', // Could add this to intake form later
     };
     
     await supabase
@@ -89,7 +90,7 @@ export default function DashboardPage() {
       })
       .eq('id', searchId);
 
-    setShowContextModal(false);
+    setShowIntakeModal(false);
     navigate(`/calling/${searchId}`);
   };
 
@@ -209,13 +210,12 @@ export default function DashboardPage() {
         </motion.div>
       </main>
 
-      {/* Context Modal */}
-      <CallContextModal
-        open={showContextModal}
-        onOpenChange={setShowContextModal}
-        onSubmit={handleStartCalling}
+      {/* Smart Intake Modal */}
+      <SmartIntakeModal
+        open={showIntakeModal}
+        onOpenChange={setShowIntakeModal}
+        onComplete={handleIntakeComplete}
         service={searchData?.service || ''}
-        providerCount={providers.length}
       />
     </div>
   );
