@@ -26,6 +26,10 @@ export default function WarRoomPage() {
   const [calls, setCalls] = useState<Map<string, Call>>(new Map());
   const [shuttingDownProviders, setShuttingDownProviders] = useState<Set<string>>(new Set());
   
+  // WINNER LOCK: Use ref for immediate, synchronous lock to prevent race conditions
+  const confirmedBookingRef = useRef<{ providerId: string; call: Call } | null>(null);
+  const isWinnerLockedRef = useRef(false);
+  
   // IVR simulation state
   const ivrTimersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
 
@@ -38,10 +42,22 @@ export default function WarRoomPage() {
   } = useAICall({
     onCallComplete: useCallback((providerId: string, result) => {
       if (!result) return;
+      
+      // RACE CONDITION FIX: Skip updates for terminated calls if winner is locked
+      if (isWinnerLockedRef.current && confirmedBookingRef.current?.providerId !== providerId) {
+        // Only allow 'cancelled' status for non-winner calls after lock
+        if (result.status !== 'cancelled') return;
+      }
+      
       setCalls(prev => {
         const newCalls = new Map(prev);
         const call = newCalls.get(providerId);
         if (call) {
+          // Don't overwrite winner's status
+          if (confirmedBookingRef.current?.providerId === providerId && call.status === 'success') {
+            return prev; // Keep winner immutable
+          }
+          
           newCalls.set(providerId, {
             ...call,
             status: result.status,
@@ -56,6 +72,11 @@ export default function WarRoomPage() {
       });
     }, []),
     onTranscriptUpdate: useCallback((providerId: string, transcript) => {
+      // Skip transcript updates for non-winner calls after lock
+      if (isWinnerLockedRef.current && confirmedBookingRef.current?.providerId !== providerId) {
+        return;
+      }
+      
       setCalls(prev => {
         const newCalls = new Map(prev);
         const call = newCalls.get(providerId);
@@ -122,6 +143,11 @@ export default function WarRoomPage() {
 
     sequence.forEach(({ delay, phase, event }) => {
       const timer = setTimeout(() => {
+        // Skip IVR updates if winner is already locked and this isn't the winner
+        if (isWinnerLockedRef.current && confirmedBookingRef.current?.providerId !== providerId) {
+          return;
+        }
+        
         setCalls(prev => {
           const newCalls = new Map(prev);
           const call = newCalls.get(providerId);
@@ -164,14 +190,25 @@ export default function WarRoomPage() {
     });
   }, []);
 
-  // Sync callStates to calls
+  // Sync callStates to calls with winner lock protection
   useEffect(() => {
     callStates.forEach((state, providerId) => {
       if (!state) return;
+      
+      // RACE CONDITION FIX: Skip updates for non-winner calls after lock
+      if (isWinnerLockedRef.current && confirmedBookingRef.current?.providerId !== providerId) {
+        return;
+      }
+      
       setCalls(prev => {
         const newCalls = new Map(prev);
         const call = newCalls.get(providerId);
         if (call) {
+          // Don't overwrite winner's status once locked
+          if (confirmedBookingRef.current?.providerId === providerId && call.status === 'success') {
+            return prev;
+          }
+          
           // Start IVR simulation when call becomes active
           if (state.status === 'in_progress' && call.status !== 'in_progress') {
             simulateIVRForProvider(providerId);
@@ -242,13 +279,25 @@ export default function WarRoomPage() {
     loadData();
   }, [searchId, user]);
 
-  // Check for winner - Race to Success with shutdown animation
+  // Check for winner - Race to Success with WINNER LOCK
   useEffect(() => {
-    if (winnerProviderId) return;
+    // CRITICAL: Check ref first (synchronous) to prevent race condition
+    if (isWinnerLockedRef.current || winnerProviderId) return;
 
     const successfulCall = Array.from(calls.entries()).find(([_, call]) => call.status === 'success');
     if (successfulCall) {
       const [providerId, call] = successfulCall;
+      
+      // IMMEDIATE LOCK: Set ref synchronously before any async operations
+      if (!isWinnerLockedRef.current) {
+        isWinnerLockedRef.current = true;
+        confirmedBookingRef.current = { providerId, call };
+      } else {
+        // Another winner was already locked - ignore this success
+        return;
+      }
+      
+      // Now safe to update state
       setWinnerProviderId(providerId);
       setCallingActive(false);
       cancelAllCalls();
@@ -257,13 +306,21 @@ export default function WarRoomPage() {
       const otherProviderIds = Array.from(calls.keys()).filter(id => id !== providerId);
       setShuttingDownProviders(new Set(otherProviderIds));
 
-      // Cancel other calls with animation delay
+      // Terminate other calls with animation delay - use 'cancelled' to differentiate from 'failed'
       setTimeout(() => {
         setCalls(prev => {
           const newCalls = new Map(prev);
           newCalls.forEach((c, id) => {
-            if (id !== providerId && ['queued', 'dialing', 'connected', 'in_progress'].includes(c.status)) {
-              newCalls.set(id, { ...c, status: 'cancelled', updated_at: new Date().toISOString() });
+            // NEVER touch the winner's card
+            if (id === confirmedBookingRef.current?.providerId) return;
+            
+            if (['queued', 'dialing', 'connected', 'in_progress'].includes(c.status)) {
+              newCalls.set(id, { 
+                ...c, 
+                status: 'cancelled', 
+                failure_reason: 'Slot secured elsewhere',
+                updated_at: new Date().toISOString() 
+              });
             }
           });
           return newCalls;
@@ -496,23 +553,51 @@ export default function WarRoomPage() {
           </div>
         </motion.div>
 
-        {/* Provider grid */}
+        {/* Provider grid - Winner moves to top */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           <AnimatePresence mode="popLayout">
-            {providers.map(provider => {
-              const call = calls.get(provider.id);
-              const isShuttingDown = shuttingDownProviders.has(provider.id);
-              return (
-                <EnhancedProviderCard
-                  key={provider.id}
-                  provider={provider}
-                  call={call}
-                  isWinner={provider.id === winnerProviderId}
-                  isShuttingDown={isShuttingDown}
-                  onEmergencyTakeover={handleEmergencyTakeover}
-                />
-              );
-            })}
+            {/* VISUAL HIERARCHY: Winner card first, then active, then terminated */}
+            {[...providers]
+              .sort((a, b) => {
+                // Winner always first
+                if (a.id === winnerProviderId) return -1;
+                if (b.id === winnerProviderId) return 1;
+                
+                const callA = calls.get(a.id);
+                const callB = calls.get(b.id);
+                
+                // Active calls before terminated
+                const isActiveA = callA && ['dialing', 'connected', 'in_progress'].includes(callA.status);
+                const isActiveB = callB && ['dialing', 'connected', 'in_progress'].includes(callB.status);
+                if (isActiveA && !isActiveB) return -1;
+                if (!isActiveA && isActiveB) return 1;
+                
+                // Failed/no_answer before cancelled (cancelled = terminated by us)
+                const isCancelledA = callA?.status === 'cancelled';
+                const isCancelledB = callB?.status === 'cancelled';
+                if (!isCancelledA && isCancelledB) return -1;
+                if (isCancelledA && !isCancelledB) return 1;
+                
+                return 0;
+              })
+              .map(provider => {
+                const call = calls.get(provider.id);
+                const isWinner = provider.id === winnerProviderId;
+                const isShuttingDown = shuttingDownProviders.has(provider.id);
+                const isTerminated = call?.status === 'cancelled' && !isWinner;
+                
+                return (
+                  <EnhancedProviderCard
+                    key={provider.id}
+                    provider={provider}
+                    call={call}
+                    isWinner={isWinner}
+                    isShuttingDown={isShuttingDown}
+                    onEmergencyTakeover={handleEmergencyTakeover}
+                    className={isTerminated ? 'opacity-40' : ''}
+                  />
+                );
+              })}
           </AnimatePresence>
         </div>
       </main>
