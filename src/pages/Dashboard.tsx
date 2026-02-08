@@ -5,12 +5,11 @@ import { Settings, History, Zap } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { SearchBox } from '@/components/search/SearchBox';
-import { SmartIntakeModal } from '@/components/search/SmartIntakeModal';
+import { BookingOptionsModal, BookingOptions } from '@/components/booking/BookingOptionsModal';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/integrations/supabase/client';
 import { generateMockProviders } from '@/lib/mock-providers';
 import { Provider } from '@/types';
-import { IntakeFormData } from '@/types/intake';
 
 export default function DashboardPage() {
   const navigate = useNavigate();
@@ -19,7 +18,7 @@ export default function DashboardPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchData, setSearchData] = useState<{ service: string; location: string } | null>(null);
   const [providers, setProviders] = useState<Omit<Provider, 'id' | 'created_at'>[]>([]);
-  const [showIntakeModal, setShowIntakeModal] = useState(false);
+  const [showBookingModal, setShowBookingModal] = useState(false);
   const [searchId, setSearchId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -32,14 +31,16 @@ export default function DashboardPage() {
     setIsSearching(true);
     setSearchData({ service, location });
 
-    // Create search in database
+    // Create search in database with new fields
     const { data: searchRecord, error } = await supabase
       .from('searches')
       .insert({
         user_id: user!.id,
         service,
         location,
-        status: 'discovering'
+        status: 'discovering',
+        booking_mode: 'single',
+        stage: 'discovery',
       })
       .select()
       .single();
@@ -66,32 +67,43 @@ export default function DashboardPage() {
       .select();
 
     if (insertedProviders) {
-      // Show smart intake modal
       setIsSearching(false);
-      setShowIntakeModal(true);
+      setShowBookingModal(true);
     }
   };
 
-  const handleIntakeComplete = async (intakeData: IntakeFormData, category: string) => {
+  const handleBookingComplete = async (options: BookingOptions) => {
     if (!searchId) return;
 
-    // Build preferences with intake data
+    // Build preferences with all booking options
     const preferencesJson = {
-      category,
-      intake_data: intakeData,
-      time_preference: 'flexible', // Could add this to intake form later
+      category: options.category,
+      intake_data: options.intakeData,
+      time_preference: 'flexible',
     };
     
+    // Update search with all options
     await supabase
       .from('searches')
       .update({ 
         preferences: preferencesJson,
-        status: 'calling'
+        status: 'calling',
+        booking_mode: options.bookingMode,
+        stage: options.bookingMode === 'multi' ? 'discovery' : 'booking',
+        additional_requirements: options.additionalRequirements || null,
+        voice_preference: JSON.parse(JSON.stringify(options.voicePreference)),
+        scoring_weights: JSON.parse(JSON.stringify(options.scoringWeights)),
       })
       .eq('id', searchId);
 
-    setShowIntakeModal(false);
-    navigate(`/calling/${searchId}`);
+    setShowBookingModal(false);
+    
+    // Navigate to appropriate page based on booking mode
+    if (options.bookingMode === 'multi') {
+      navigate(`/calling/${searchId}?stage=scout`);
+    } else {
+      navigate(`/calling/${searchId}`);
+    }
   };
 
   if (loading) {
@@ -210,11 +222,11 @@ export default function DashboardPage() {
         </motion.div>
       </main>
 
-      {/* Smart Intake Modal */}
-      <SmartIntakeModal
-        open={showIntakeModal}
-        onOpenChange={setShowIntakeModal}
-        onComplete={handleIntakeComplete}
+      {/* Booking Options Modal */}
+      <BookingOptionsModal
+        open={showBookingModal}
+        onOpenChange={setShowBookingModal}
+        onComplete={handleBookingComplete}
         service={searchData?.service || ''}
       />
     </div>
