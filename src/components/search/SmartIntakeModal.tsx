@@ -34,10 +34,6 @@ interface SmartIntakeModalProps {
   onOpenChange: (open: boolean) => void;
   onComplete: (data: IntakeFormData, category: string) => void;
   service: string;
-  userProfile?: {
-    name?: string;
-    dateOfBirth?: string; // dd/mm/yyyy format
-  };
 }
 
 type IntakeStep = 'initial' | 'analyzing' | 'form';
@@ -47,7 +43,6 @@ export function SmartIntakeModal({
   onOpenChange,
   onComplete,
   service,
-  userProfile,
 }: SmartIntakeModalProps) {
   const [step, setStep] = useState<IntakeStep>('initial');
   const [initialDetails, setInitialDetails] = useState('');
@@ -57,15 +52,28 @@ export function SmartIntakeModal({
 
   const { isAnalyzing, analysis, analyzeIntake, buildCompleteData, reset } = useSmartIntake();
 
-  // Load saved user data from localStorage on mount
+  // Load saved user data from profile in database
   useEffect(() => {
-    const savedName = localStorage.getItem('user_full_name');
-    const savedDob = localStorage.getItem('user_date_of_birth');
-    setSavedUserData({
-      name: savedName || userProfile?.name || undefined,
-      dateOfBirth: savedDob || userProfile?.dateOfBirth || undefined,
-    });
-  }, [userProfile]);
+    const loadProfileData = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('full_name, date_of_birth')
+        .eq('user_id', user.id)
+        .single();
+      
+      if (profile) {
+        setSavedUserData({
+          name: profile.full_name || undefined,
+          dateOfBirth: profile.date_of_birth || undefined,
+        });
+      }
+    };
+    
+    loadProfileData();
+  }, []);
 
   // Reset when modal opens
   useEffect(() => {
@@ -111,14 +119,26 @@ export function SmartIntakeModal({
     setFormData(prev => ({ ...prev, [key]: value }));
   };
 
-  const handleSubmit = () => {
-    // Save name and DOB for future use
-    const nameKey = analysis?.allFields.find(f => f.key.includes('name') && f.type === 'text')?.key;
-    if (nameKey && formData[nameKey]) {
-      localStorage.setItem('user_full_name', formData[nameKey]);
-    }
-    if (formData['date_of_birth']) {
-      localStorage.setItem('user_date_of_birth', formData['date_of_birth']);
+  const handleSubmit = async () => {
+    // Save name and DOB to user profile in database
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      const nameKey = analysis?.allFields.find(f => f.key.includes('name') && f.type === 'text')?.key;
+      const updates: { full_name?: string; date_of_birth?: string } = {};
+      
+      if (nameKey && formData[nameKey]) {
+        updates.full_name = formData[nameKey];
+      }
+      if (formData['date_of_birth']) {
+        updates.date_of_birth = formData['date_of_birth'];
+      }
+      
+      if (Object.keys(updates).length > 0) {
+        await supabase
+          .from('profiles')
+          .update(updates)
+          .eq('user_id', user.id);
+      }
     }
     
     const completeData = buildCompleteData(formData);

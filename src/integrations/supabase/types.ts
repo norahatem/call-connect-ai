@@ -126,7 +126,9 @@ export type Database = {
         Row: {
           calendar_connected: boolean | null
           created_at: string
+          date_of_birth: string | null
           email: string
+          full_name: string | null
           id: string
           phone: string | null
           phone_verified: boolean | null
@@ -136,7 +138,9 @@ export type Database = {
         Insert: {
           calendar_connected?: boolean | null
           created_at?: string
+          date_of_birth?: string | null
           email: string
+          full_name?: string | null
           id?: string
           phone?: string | null
           phone_verified?: boolean | null
@@ -146,7 +150,9 @@ export type Database = {
         Update: {
           calendar_connected?: boolean | null
           created_at?: string
+          date_of_birth?: string | null
           email?: string
+          full_name?: string | null
           id?: string
           phone?: string | null
           phone_verified?: boolean | null
