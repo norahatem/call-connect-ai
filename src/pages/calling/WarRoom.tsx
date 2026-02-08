@@ -2,15 +2,40 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import confetti from 'canvas-confetti';
-import { ArrowLeft, Zap, CheckCircle2, Volume2, VolumeX, Shield } from 'lucide-react';
+import { ArrowLeft, Zap, CheckCircle2, Volume2, VolumeX, Shield, Download, FileText } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Logo } from '@/components/ui/logo';
 import { EnhancedProviderCard } from '@/components/providers/EnhancedProviderCard';
 import { ConflictPreventionBadge } from '@/components/calling/ConflictPreventionBadge';
 import { useAuth } from '@/hooks/useAuth';
 import { useAICall } from '@/hooks/useAICall';
+import { useCallTranscriptLog } from '@/hooks/useCallTranscriptLog';
 import { supabase } from '@/integrations/supabase/client';
 import { Provider, Call, Search, CallContextData, CallPhase, IVREvent } from '@/types';
+
+// Demo providers for testing when no real search data exists
+const DEMO_PROVIDERS: Provider[] = [
+  { id: 'demo-1', search_id: 'demo', name: 'Metro Dental Associates', phone: '(555) 123-4567', rating: 4.8, review_count: 234, distance: 0.8, address: '123 Main St', created_at: new Date().toISOString() },
+  { id: 'demo-2', search_id: 'demo', name: 'Bright Smile Dentistry', phone: '(555) 234-5678', rating: 4.6, review_count: 189, distance: 1.2, address: '456 Oak Ave', created_at: new Date().toISOString() },
+  { id: 'demo-3', search_id: 'demo', name: 'Family Dental Care', phone: '(555) 345-6789', rating: 4.9, review_count: 312, distance: 1.5, address: '789 Pine Rd', created_at: new Date().toISOString() },
+  { id: 'demo-4', search_id: 'demo', name: 'Downtown Dental Clinic', phone: '(555) 456-7890', rating: 4.4, review_count: 156, distance: 2.0, address: '321 Elm St', created_at: new Date().toISOString() },
+  { id: 'demo-5', search_id: 'demo', name: 'Premier Dental Group', phone: '(555) 567-8901', rating: 4.7, review_count: 278, distance: 2.3, address: '654 Maple Dr', created_at: new Date().toISOString() },
+];
+
+const DEMO_SEARCH: Search = {
+  id: 'demo',
+  user_id: 'demo-user',
+  service: 'Dental Cleaning',
+  location: 'San Francisco, CA',
+  preferences: { purpose: 'new_appointment', details: 'Regular checkup', time_preference: 'morning' },
+  status: 'calling',
+  booking_mode: 'single',
+  stage: 'booking',
+  voice_preference: { gender: 'female', accent: 'american' },
+  scoring_weights: [],
+  ranked_results: [],
+  created_at: new Date().toISOString(),
+};
 
 export default function WarRoomPage() {
   const navigate = useNavigate();
@@ -25,6 +50,7 @@ export default function WarRoomPage() {
   const [currentCallIndex, setCurrentCallIndex] = useState(0);
   const [calls, setCalls] = useState<Map<string, Call>>(new Map());
   const [shuttingDownProviders, setShuttingDownProviders] = useState<Set<string>>(new Set());
+  const [isDemo, setIsDemo] = useState(false);
   
   // WINNER LOCK: Use ref for immediate, synchronous lock to prevent race conditions
   const confirmedBookingRef = useRef<{ providerId: string; call: Call } | null>(null);
@@ -32,6 +58,9 @@ export default function WarRoomPage() {
   
   // IVR simulation state
   const ivrTimersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  
+  // Transcript logging
+  const { transcriptLog, logAllCalls, exportLog } = useCallTranscriptLog();
 
   const { 
     callStates, 
@@ -229,11 +258,12 @@ export default function WarRoomPage() {
     });
   }, [callStates, simulateIVRForProvider]);
 
-  // Load search and providers
+  // Load search and providers (with demo mode fallback)
   useEffect(() => {
-    if (!searchId || !user) return;
+    if (!searchId) return;
 
     const loadData = async () => {
+      // First try to load real data
       const { data: searchData } = await supabase
         .from('searches')
         .select('*')
@@ -242,42 +272,67 @@ export default function WarRoomPage() {
 
       if (searchData) {
         setSearch(searchData as unknown as Search);
-      }
-
-      const { data: providersData } = await supabase
-        .from('providers')
-        .select('*')
-        .eq('search_id', searchId)
-        .order('rating', { ascending: false });
-
-      if (providersData) {
-        const typedProviders = providersData as unknown as Provider[];
-        setProviders(typedProviders);
-        // Support up to 15 providers for race-to-success
-        setCallQueue(typedProviders.slice(0, 15).map(p => p.id));
         
-        const initialCalls = new Map<string, Call>();
-        typedProviders.forEach(provider => {
-          initialCalls.set(provider.id, {
-            id: crypto.randomUUID(),
-            search_id: searchId,
-            provider_id: provider.id,
-            status: 'queued',
-            transcript: [],
-            duration: 0,
-            phase: 'connecting',
-            answer_type: 'unknown',
-            ivr_events: [],
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
+        const { data: providersData } = await supabase
+          .from('providers')
+          .select('*')
+          .eq('search_id', searchId)
+          .order('rating', { ascending: false });
+
+        if (providersData && providersData.length > 0) {
+          const typedProviders = providersData as unknown as Provider[];
+          setProviders(typedProviders);
+          setCallQueue(typedProviders.slice(0, 15).map(p => p.id));
+          
+          const initialCalls = new Map<string, Call>();
+          typedProviders.forEach(provider => {
+            initialCalls.set(provider.id, {
+              id: crypto.randomUUID(),
+              search_id: searchId,
+              provider_id: provider.id,
+              status: 'queued',
+              transcript: [],
+              duration: 0,
+              phase: 'connecting',
+              answer_type: 'unknown',
+              ivr_events: [],
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString()
+            });
           });
-        });
-        setCalls(initialCalls);
+          setCalls(initialCalls);
+          return;
+        }
       }
+      
+      // Fallback to demo mode if no real data
+      console.log('🎭 No real data found - entering DEMO MODE');
+      setIsDemo(true);
+      setSearch(DEMO_SEARCH);
+      setProviders(DEMO_PROVIDERS);
+      setCallQueue(DEMO_PROVIDERS.map(p => p.id));
+      
+      const initialCalls = new Map<string, Call>();
+      DEMO_PROVIDERS.forEach(provider => {
+        initialCalls.set(provider.id, {
+          id: crypto.randomUUID(),
+          search_id: 'demo',
+          provider_id: provider.id,
+          status: 'queued',
+          transcript: [],
+          duration: 0,
+          phase: 'connecting',
+          answer_type: 'unknown',
+          ivr_events: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      });
+      setCalls(initialCalls);
     };
 
     loadData();
-  }, [searchId, user]);
+  }, [searchId]);
 
   // Check for winner - Race to Success with WINNER LOCK
   useEffect(() => {
@@ -337,6 +392,10 @@ export default function WarRoomPage() {
               });
             }
           });
+          
+          // Log all transcripts after state update
+          logAllCalls(newCalls, providers, providerId);
+          
           return newCalls;
         });
       }, 800); // Delay for animation
@@ -407,7 +466,7 @@ export default function WarRoomPage() {
         navigate(`/booking/${searchId}`);
       }, 3000);
     }
-  }, [calls, winnerProviderId, cancelAllCalls, callStates, providers, user, navigate, searchId]);
+  }, [calls, winnerProviderId, cancelAllCalls, callStates, providers, user, navigate, searchId, logAllCalls]);
 
   // Start calling sequence - Race up to 15 calls
   useEffect(() => {
@@ -499,6 +558,28 @@ export default function WarRoomPage() {
                 activeCallCount={activeCallCount}
                 isSecured={successCount > 0}
               />
+            )}
+            
+            {/* Export Transcripts Button */}
+            {transcriptLog.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={exportLog}
+                className="gap-2 border-primary/30 hover:border-primary"
+                title="Download all call transcripts"
+              >
+                <Download className="h-4 w-4" />
+                <span className="hidden sm:inline">Export Logs</span>
+              </Button>
+            )}
+            
+            {/* Demo Mode Indicator */}
+            {isDemo && (
+              <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-warning/20 text-warning text-xs font-medium">
+                <FileText className="h-3 w-3" />
+                <span>Demo Mode</span>
+              </div>
             )}
             
             {/* Audio toggle */}
