@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Send, Bot, User, Calendar, Check, ArrowLeft, Loader2 } from 'lucide-react';
+import { Send, Bot, User, Calendar, Check, ArrowLeft, Loader2, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,12 +20,11 @@ import { supabase } from '@/integrations/supabase/client';
 
 interface Message {
   id: string;
-  role: 'user' | 'assistant' | 'system';
+  role: 'agent' | 'receptionist' | 'system';
   content: string;
   timestamp: Date;
   toolCall?: {
     name: string;
-    params: Record<string, any>;
     result: any;
   };
 }
@@ -36,24 +35,28 @@ const mockProvider = {
   name: "Dr. Smith's Dental Clinic",
   phone: '+1 (555) 123-4567',
   address: '123 Main St, City',
-  distance: 1.2,
-  rating: 4.8,
-  review_count: 156,
+  service: 'dental cleaning',
+};
+
+// Mock user (the person the AI is booking for)
+const mockUser = {
+  name: 'Alex Johnson',
+  phone: '+1 (555) 987-6543',
 };
 
 export default function TextAgentTest() {
   const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([
     {
-      id: '1',
+      id: '0',
       role: 'system',
-      content: `Your personal booking assistant for: ${mockProvider.name}. I'll check YOUR calendar and book on your behalf.`,
+      content: `📞 CALL SIMULATION\n\nYou are playing the RECEPTIONIST at ${mockProvider.name}.\nThe AI agent is calling you to book an appointment for their client "${mockUser.name}".\n\nRespond as a real receptionist would - offer times, ask questions, confirm bookings.`,
       timestamp: new Date(),
     },
     {
-      id: '2',
-      role: 'assistant',
-      content: `Hi! I'm your personal booking assistant. I'll help you schedule an appointment at ${mockProvider.name} by:\n\n• Checking YOUR calendar for conflicts\n• Finding times that work for YOU\n• Booking the appointment on your behalf\n\nTry asking:\n• "Am I free tomorrow at 2pm?"\n• "When am I available this week?"\n• "Book me for Friday at 10am"`,
+      id: '1',
+      role: 'agent',
+      content: `Hi, this is an AI assistant calling on behalf of ${mockUser.name}. They're looking to schedule a ${mockProvider.service} appointment. Do you have any availability in the next few days?`,
       timestamp: new Date(),
     },
   ]);
@@ -71,15 +74,12 @@ export default function TextAgentTest() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Client tools (same as in useElevenLabsAgent)
+  // Client tools - these check the USER's (client's) calendar
   const clientTools = {
-    check_availability: async (params: { proposed_time: string }) => {
-      const proposedDate = parseTimeSlot(params.proposed_time);
+    check_client_availability: async (proposedTime: string) => {
+      const proposedDate = parseTimeSlot(proposedTime);
       if (!proposedDate) {
-        return { 
-          available: false, 
-          error: 'Could not parse the proposed time' 
-        };
+        return { available: false, error: 'Could not parse time' };
       }
 
       const endDate = new Date(proposedDate.getTime() + 60 * 60 * 1000);
@@ -89,34 +89,34 @@ export default function TextAgentTest() {
         return { 
           available: true, 
           slot: formatSlot(proposedDate),
-          message: `You are available at ${formatSlot(proposedDate)}`
         };
       } else {
-        const alternatives = getAvailableSlots(proposedDate, 60)
-          .filter(s => s.available)
-          .slice(0, 3)
-          .map(s => formatSlot(s.start));
-        
         return { 
           available: false, 
           conflict: result.conflictingEvent?.title,
-          alternatives,
-          message: `You have a conflict: "${result.conflictingEvent?.title}". Available alternatives: ${alternatives.join(', ')}`
         };
       }
     },
 
-    confirm_booking: async (params: { appointment_time: string }) => {
-      const appointmentDate = parseTimeSlot(params.appointment_time);
+    get_client_schedule: async () => {
+      const events = getCalendarEvents();
+      const slots = getAvailableSlots(new Date(), 60).filter(s => s.available).slice(0, 5);
+      return {
+        existingEvents: events.map(e => ({ title: e.title, time: formatSlot(e.start) })),
+        availableSlots: slots.map(s => formatSlot(s.start)),
+      };
+    },
+
+    book_appointment: async (appointmentTime: string, confirmationCode: string) => {
+      const appointmentDate = parseTimeSlot(appointmentTime);
       if (!appointmentDate) {
-        return { success: false, error: 'Invalid time format' };
+        return { success: false, error: 'Invalid time' };
       }
 
       const endDate = new Date(appointmentDate.getTime() + 60 * 60 * 1000);
-      const confirmationCode = generateConfirmationCode();
       
       const result = bookAppointment(
-        `Appointment at ${mockProvider.name}`,
+        `${mockProvider.service} at ${mockProvider.name}`,
         appointmentDate,
         endDate,
         mockProvider.name,
@@ -125,86 +125,36 @@ export default function TextAgentTest() {
 
       if (result.success) {
         setBookingResult({ slot: appointmentDate, confirmationCode });
-        return { 
-          success: true, 
-          confirmation_code: confirmationCode,
-          appointment_time: formatSlot(appointmentDate),
-          message: `Booking confirmed! Confirmation code: ${confirmationCode}`
-        };
-      } else {
-        return { success: false, error: result.error };
+        return { success: true, time: formatSlot(appointmentDate), confirmationCode };
       }
-    },
-
-    get_available_slots: async (params: { date?: string; preference?: string }) => {
-      const targetDate = params.date 
-        ? parseTimeSlot(params.date) 
-        : new Date(Date.now() + 24 * 60 * 60 * 1000);
-      
-      if (!targetDate) {
-        return { error: 'Could not parse date' };
-      }
-
-      const slots = getAvailableSlots(targetDate, 60)
-        .filter(s => s.available)
-        .slice(0, 5);
-
-      let filteredSlots = slots;
-      if (params.preference) {
-        const pref = params.preference.toLowerCase();
-        if (pref.includes('morning')) {
-          filteredSlots = slots.filter(s => s.start.getHours() < 12);
-        } else if (pref.includes('afternoon')) {
-          filteredSlots = slots.filter(s => s.start.getHours() >= 12 && s.start.getHours() < 17);
-        } else if (pref.includes('evening')) {
-          filteredSlots = slots.filter(s => s.start.getHours() >= 17);
-        }
-      }
-
-      return {
-        available_slots: filteredSlots.map(s => ({
-          time: formatSlot(s.start),
-          date: s.start.toISOString(),
-        })),
-        message: `Found ${filteredSlots.length} available slots`
-      };
-    },
-
-    get_calendar_events: async () => {
-      const events = getCalendarEvents();
-      return {
-        events: events.map(e => ({
-          title: e.title,
-          start: formatSlot(e.start),
-          end: formatSlot(e.end),
-        })),
-        message: `You have ${events.length} events on your calendar`
-      };
+      return { success: false, error: result.error };
     },
   };
 
   const handleSend = async () => {
     if (!input.trim() || isLoading) return;
 
-    const userMessage: Message = {
+    // User's message is from the "receptionist" perspective
+    const receptionistMessage: Message = {
       id: Date.now().toString(),
-      role: 'user',
+      role: 'receptionist',
       content: input.trim(),
       timestamp: new Date(),
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    setMessages(prev => [...prev, receptionistMessage]);
     setInput('');
     setIsLoading(true);
 
     try {
-      // Use Lovable AI to interpret the user's request and call tools
+      // Call edge function to get AI agent's response
       const response = await supabase.functions.invoke('text-agent-chat', {
         body: {
-          message: input.trim(),
+          receptionistMessage: input.trim(),
           provider: mockProvider,
+          user: mockUser,
           conversationHistory: messages.filter(m => m.role !== 'system').map(m => ({
-            role: m.role,
+            role: m.role === 'agent' ? 'assistant' : 'user',
             content: m.content,
           })),
         },
@@ -212,111 +162,62 @@ export default function TextAgentTest() {
 
       if (response.error) throw response.error;
 
-      const { intent, params, response: aiResponse } = response.data;
+      const { agentResponse, toolCalls } = response.data;
 
-      // Execute the tool if needed
-      let toolResult = null;
-      if (intent && clientTools[intent as keyof typeof clientTools]) {
-        toolResult = await clientTools[intent as keyof typeof clientTools](params);
+      // Execute any tool calls
+      let toolResults: Message[] = [];
+      if (toolCalls && toolCalls.length > 0) {
+        for (const tool of toolCalls) {
+          let result;
+          if (tool.name === 'check_client_availability') {
+            result = await clientTools.check_client_availability(tool.params.time);
+          } else if (tool.name === 'get_client_schedule') {
+            result = await clientTools.get_client_schedule();
+          } else if (tool.name === 'book_appointment') {
+            result = await clientTools.book_appointment(tool.params.time, tool.params.confirmationCode);
+            if (result.success) {
+              toast({
+                title: '🎉 Appointment Booked!',
+                description: `${mockUser.name}'s appointment confirmed`,
+              });
+            }
+          }
+
+          toolResults.push({
+            id: `tool-${Date.now()}-${tool.name}`,
+            role: 'system',
+            content: `🔧 ${tool.name}: ${JSON.stringify(result)}`,
+            timestamp: new Date(),
+            toolCall: { name: tool.name, result },
+          });
+        }
       }
 
-      const assistantMessage: Message = {
+      // Add tool results and agent response
+      const agentMessage: Message = {
         id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: toolResult?.message || aiResponse || "I'm not sure how to help with that. Try asking about availability or booking.",
+        role: 'agent',
+        content: agentResponse,
         timestamp: new Date(),
-        toolCall: intent ? { name: intent, params, result: toolResult } : undefined,
       };
 
-      setMessages(prev => [...prev, assistantMessage]);
+      setMessages(prev => [...prev, ...toolResults, agentMessage]);
 
-      if (toolResult?.success && toolResult?.confirmation_code) {
-        toast({
-          title: '🎉 Booking Confirmed!',
-          description: `Code: ${toolResult.confirmation_code}`,
-        });
-      }
     } catch (error) {
       console.error('Chat error:', error);
       
-      // Fallback: simple pattern matching if edge function fails
-      const fallbackResponse = await handleFallback(input.trim());
-      setMessages(prev => [...prev, fallbackResponse]);
+      // Fallback response
+      const fallbackMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'agent',
+        content: `Let me check my client's calendar... Could you tell me what times you have available?`,
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, fallbackMessage]);
     } finally {
       setIsLoading(false);
       inputRef.current?.focus();
     }
-  };
-
-  const handleFallback = async (userInput: string): Promise<Message> => {
-    const lower = userInput.toLowerCase();
-    
-    // Simple pattern matching fallback
-    if (lower.includes('available') || lower.includes('free') || lower.includes('slot')) {
-      if (lower.includes('book') || lower.includes('schedule')) {
-        // Try to extract time and book
-        const result = await clientTools.confirm_booking({ 
-          appointment_time: userInput 
-        });
-        return {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: result.message || (result.success 
-            ? `Booked! Confirmation: ${result.confirmation_code}` 
-            : `Couldn't book: ${result.error}`),
-          timestamp: new Date(),
-          toolCall: { name: 'confirm_booking', params: { appointment_time: userInput }, result },
-        };
-      } else {
-        // Check availability
-        const result = await clientTools.check_availability({ 
-          proposed_time: userInput 
-        });
-        return {
-          id: (Date.now() + 1).toString(),
-          role: 'assistant',
-          content: result.message || (result.available 
-            ? `Yes, you're free at ${result.slot}!` 
-            : `You have a conflict. Try: ${result.alternatives?.join(', ')}`),
-          timestamp: new Date(),
-          toolCall: { name: 'check_availability', params: { proposed_time: userInput }, result },
-        };
-      }
-    } else if (lower.includes('book') || lower.includes('schedule') || lower.includes('appointment')) {
-      const result = await clientTools.confirm_booking({ 
-        appointment_time: userInput 
-      });
-      return {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: result.message || (result.success 
-          ? `Booked! Confirmation: ${result.confirmation_code}` 
-          : `Couldn't book: ${result.error}`),
-        timestamp: new Date(),
-        toolCall: { name: 'confirm_booking', params: { appointment_time: userInput }, result },
-      };
-    } else if (lower.includes('calendar') || lower.includes('events') || lower.includes('schedule')) {
-      const result = await clientTools.get_calendar_events();
-      const eventList = result.events.map(e => `• ${e.title}: ${e.start}`).join('\n');
-      return {
-        id: (Date.now() + 1).toString(),
-        role: 'assistant',
-        content: `${result.message}:\n\n${eventList}`,
-        timestamp: new Date(),
-        toolCall: { name: 'get_calendar_events', params: {}, result },
-      };
-    }
-
-    // Get available slots as default
-    const result = await clientTools.get_available_slots({});
-    const slotList = result.available_slots?.map(s => `• ${s.time}`).join('\n') || 'No slots found';
-    return {
-      id: (Date.now() + 1).toString(),
-      role: 'assistant',
-      content: `Here are some available slots:\n\n${slotList}\n\nWould you like to book one of these?`,
-      timestamp: new Date(),
-      toolCall: { name: 'get_available_slots', params: {}, result },
-    };
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -324,6 +225,24 @@ export default function TextAgentTest() {
       e.preventDefault();
       handleSend();
     }
+  };
+
+  const resetConversation = () => {
+    setMessages([
+      {
+        id: '0',
+        role: 'system',
+        content: `📞 CALL SIMULATION\n\nYou are playing the RECEPTIONIST at ${mockProvider.name}.\nThe AI agent is calling you to book an appointment for their client "${mockUser.name}".\n\nRespond as a real receptionist would - offer times, ask questions, confirm bookings.`,
+        timestamp: new Date(),
+      },
+      {
+        id: '1',
+        role: 'agent',
+        content: `Hi, this is an AI assistant calling on behalf of ${mockUser.name}. They're looking to schedule a ${mockProvider.service} appointment. Do you have any availability in the next few days?`,
+        timestamp: new Date(),
+      },
+    ]);
+    setBookingResult(null);
   };
 
   return (
@@ -339,10 +258,15 @@ export default function TextAgentTest() {
             </Link>
             <Logo size="sm" />
           </div>
-          <Badge variant="secondary" className="gap-1">
-            <span className="w-2 h-2 rounded-full bg-success animate-pulse" />
-            Text Mode (Free)
-          </Badge>
+          <div className="flex items-center gap-2">
+            <Badge variant="secondary" className="gap-1">
+              <Phone className="h-3 w-3" />
+              Call Simulation
+            </Badge>
+            <Button variant="outline" size="sm" onClick={resetConversation}>
+              Reset
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -351,12 +275,16 @@ export default function TextAgentTest() {
         <Card className="glass-card mb-4">
           <CardHeader className="pb-2">
             <CardTitle className="text-lg flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-primary" />
-              Testing: {mockProvider.name}
+              <Phone className="h-5 w-5 text-primary" />
+              You are the Receptionist
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">
-            This tests the booking client tools using text chat. No ElevenLabs credits used!
+          <CardContent className="text-sm text-muted-foreground space-y-2">
+            <p><strong>Provider:</strong> {mockProvider.name}</p>
+            <p><strong>AI is booking for:</strong> {mockUser.name}</p>
+            <p className="text-xs opacity-70">
+              Respond as a receptionist would. Offer appointment times, ask for details, confirm bookings.
+            </p>
           </CardContent>
         </Card>
 
@@ -369,32 +297,33 @@ export default function TextAgentTest() {
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className={`flex gap-3 ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                className={`flex gap-3 ${message.role === 'receptionist' ? 'justify-end' : 'justify-start'}`}
               >
-                {message.role !== 'user' && (
+                {message.role === 'agent' && (
                   <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
                     <Bot className="h-4 w-4 text-primary" />
                   </div>
                 )}
+                {message.role === 'system' && (
+                  <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center shrink-0">
+                    <Calendar className="h-4 w-4 text-muted-foreground" />
+                  </div>
+                )}
                 <div
                   className={`max-w-[80%] rounded-2xl px-4 py-3 ${
-                    message.role === 'user'
+                    message.role === 'receptionist'
                       ? 'bg-primary text-primary-foreground'
                       : message.role === 'system'
-                      ? 'bg-muted/50 text-muted-foreground text-sm'
+                      ? 'bg-muted/50 text-muted-foreground text-xs font-mono'
                       : 'bg-muted'
                   }`}
                 >
                   <p className="whitespace-pre-wrap">{message.content}</p>
-                  {message.toolCall && (
-                    <div className="mt-2 pt-2 border-t border-border/50 text-xs opacity-70">
-                      <Badge variant="outline" className="text-xs">
-                        {message.toolCall.name}
-                      </Badge>
-                    </div>
+                  {message.role === 'agent' && (
+                    <p className="text-xs opacity-50 mt-1">AI Agent (calling for {mockUser.name})</p>
                   )}
                 </div>
-                {message.role === 'user' && (
+                {message.role === 'receptionist' && (
                   <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center shrink-0">
                     <User className="h-4 w-4 text-primary-foreground" />
                   </div>
@@ -412,8 +341,9 @@ export default function TextAgentTest() {
               <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                 <Bot className="h-4 w-4 text-primary" />
               </div>
-              <div className="bg-muted rounded-2xl px-4 py-3">
+              <div className="bg-muted rounded-2xl px-4 py-3 flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
+                <span className="text-sm text-muted-foreground">Checking client's calendar...</span>
               </div>
             </motion.div>
           )}
@@ -434,7 +364,7 @@ export default function TextAgentTest() {
                   <Check className="h-5 w-5 text-success" />
                 </div>
                 <div>
-                  <p className="font-medium">Booking Confirmed!</p>
+                  <p className="font-medium">Appointment Booked for {mockUser.name}!</p>
                   <p className="text-sm text-muted-foreground">
                     {formatSlot(bookingResult.slot)} • Code: {bookingResult.confirmationCode}
                   </p>
@@ -444,31 +374,27 @@ export default function TextAgentTest() {
           </motion.div>
         )}
 
-        {/* Input */}
-        <div className="flex gap-2">
-          <Input
-            ref={inputRef}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
-            placeholder="Ask about availability or book an appointment..."
-            className="flex-1"
-            disabled={isLoading}
-          />
-          <Button onClick={handleSend} disabled={!input.trim() || isLoading}>
-            <Send className="h-4 w-4" />
-          </Button>
+        {/* Input - You are the receptionist */}
+        <div className="space-y-2">
+          <p className="text-xs text-muted-foreground text-center">
+            You're the receptionist. Respond to the AI agent's booking request.
+          </p>
+          <div className="flex gap-2">
+            <Input
+              ref={inputRef}
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Respond as the receptionist... (e.g., 'We have 2pm tomorrow available')"
+              className="flex-1"
+              disabled={isLoading}
+            />
+            <Button onClick={handleSend} disabled={!input.trim() || isLoading}>
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
         </div>
       </main>
     </div>
   );
-}
-
-function generateConfirmationCode(): string {
-  const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-  const numbers = '23456789';
-  let code = '';
-  for (let i = 0; i < 2; i++) code += letters[Math.floor(Math.random() * letters.length)];
-  for (let i = 0; i < 4; i++) code += numbers[Math.floor(Math.random() * numbers.length)];
-  return code;
 }

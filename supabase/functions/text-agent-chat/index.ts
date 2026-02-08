@@ -16,37 +16,46 @@ serve(async (req) => {
       throw new Error('LOVABLE_API_KEY is not configured');
     }
 
-    const { message, provider, conversationHistory } = await req.json();
+    const { receptionistMessage, provider, user, conversationHistory } = await req.json();
 
-    const systemPrompt = `You are the USER's personal booking assistant. You help THEM book appointments at service providers like "${provider.name}".
+    const systemPrompt = `You are an AI booking assistant making a PHONE CALL on behalf of your client "${user.name}".
 
 YOUR ROLE:
-- You work FOR the user, like a personal secretary
-- You will call "${provider.name}" ON BEHALF of the user to schedule their appointment
-- You check the USER's calendar to find times when THEY are available
-- You then coordinate with the provider to book a slot that works for the user
+- You are CALLING "${provider.name}" to book an appointment for your client
+- You speak TO the receptionist (the human you're chatting with)
+- You are polite, professional, and efficient - like a real secretary making a call
+- You check your CLIENT's calendar before confirming any times
 
-TOOLS (these check the USER's calendar, not the provider's):
-- check_availability: Check if the USER is free at a specific time. Params: { proposed_time: string }
-- get_available_slots: Find times when the USER is available. Params: { date?: string, preference?: string }
-- confirm_booking: Book the appointment at ${provider.name} for the user. Params: { appointment_time: string }
-- get_calendar_events: Show the USER's existing calendar events. Params: {}
+THE CONVERSATION:
+- The receptionist works at ${provider.name}
+- They will offer available times, ask questions, and confirm bookings
+- You need to negotiate a time that works for YOUR CLIENT (${user.name})
 
-Respond with JSON:
+YOUR TOOLS (use these to check your CLIENT's availability):
+- check_client_availability: Check if ${user.name} is free at a specific time
+- get_client_schedule: See ${user.name}'s existing calendar and free slots
+- book_appointment: Finalize the booking on ${user.name}'s calendar
+
+RESPOND WITH JSON:
 {
-  "intent": "check_availability" | "get_available_slots" | "confirm_booking" | "get_calendar_events" | null,
-  "params": { ... },
-  "response": "A brief message if no tool is needed"
+  "agentResponse": "What you say to the receptionist",
+  "toolCalls": [
+    { "name": "check_client_availability", "params": { "time": "tomorrow at 2pm" } }
+  ] or []
 }
 
-Current date/time: ${new Date().toISOString()}
+CONVERSATION FLOW:
+1. Receptionist offers times → You check if your client is free
+2. If client is free → Confirm the booking
+3. If client has conflict → Ask for alternative times
+4. When booking is confirmed → Use book_appointment with the time and confirmation code
 
-Examples:
-- "Am I free tomorrow at 3pm?" → intent: "check_availability", params: { proposed_time: "tomorrow at 3pm" }
-- "Book me for Friday at 10am" → intent: "confirm_booking", params: { appointment_time: "Friday at 10am" }
-- "What times work for me?" → intent: "get_available_slots", params: {}
-- "Show my schedule" → intent: "get_calendar_events", params: {}
-- "Hello!" → intent: null, response: "Hi! I'm your booking assistant. I'll help you find a time that works for you and book your appointment at ${provider.name}. When would you like to go?"`;
+IMPORTANT:
+- Always be conversational and natural
+- When the receptionist gives a confirmation code, include it in book_appointment
+- Thank them when the booking is complete
+
+Current date: ${new Date().toLocaleDateString()}`;
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
@@ -58,8 +67,8 @@ Examples:
         model: 'google/gemini-2.5-flash',
         messages: [
           { role: 'system', content: systemPrompt },
-          ...conversationHistory.slice(-6), // Last 6 messages for context
-          { role: 'user', content: message },
+          ...conversationHistory.slice(-10),
+          { role: 'user', content: receptionistMessage },
         ],
         response_format: { type: 'json_object' },
       }),
@@ -68,14 +77,8 @@ Examples:
     if (!response.ok) {
       if (response.status === 429) {
         return new Response(
-          JSON.stringify({ error: 'Rate limited, please try again' }),
+          JSON.stringify({ error: 'Rate limited' }),
           { status: 429, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-        );
-      }
-      if (response.status === 402) {
-        return new Response(
-          JSON.stringify({ error: 'Credits exhausted' }),
-          { status: 402, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
       }
       const errorText = await response.text();
@@ -94,11 +97,16 @@ Examples:
     try {
       parsed = JSON.parse(content);
     } catch {
-      // If JSON parsing fails, treat as a simple response
-      parsed = { intent: null, params: {}, response: content };
+      parsed = { 
+        agentResponse: content, 
+        toolCalls: [] 
+      };
     }
 
-    return new Response(JSON.stringify(parsed), {
+    return new Response(JSON.stringify({
+      agentResponse: parsed.agentResponse || "Let me check on that for my client...",
+      toolCalls: parsed.toolCalls || [],
+    }), {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
     });
 
@@ -106,10 +114,8 @@ Examples:
     console.error('Text agent chat error:', error);
     return new Response(
       JSON.stringify({ 
-        error: error instanceof Error ? error.message : 'Unknown error',
-        intent: null,
-        params: {},
-        response: "I'm having trouble understanding. Try asking about availability or booking directly."
+        agentResponse: "I apologize, I'm having some technical difficulties. Could you repeat that?",
+        toolCalls: [],
       }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
