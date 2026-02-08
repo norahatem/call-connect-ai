@@ -1,13 +1,13 @@
 import { useConversation } from '@elevenlabs/react';
 import { useState, useCallback, useRef } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { elevenlabs } from '@/lib/api-client';
 import { 
   checkAvailability, 
   bookAppointment, 
   parseTimeSlot, 
   formatSlot,
   getAvailableSlots 
-} from '@/lib/mock-calendar';
+} from '@/lib/calendar-api';
 import { Provider, CallContextData, TranscriptLine } from '@/types';
 
 interface AgentCallState {
@@ -51,7 +51,7 @@ export function useElevenLabsAgent(options: UseElevenLabsAgentOptions) {
       }
 
       const endDate = new Date(proposedDate.getTime() + 60 * 60 * 1000); // 1 hour appointment
-      const result = checkAvailability(proposedDate, endDate);
+      const result = await checkAvailability(proposedDate, endDate);
       
       if (result.available) {
         return JSON.stringify({ 
@@ -61,7 +61,8 @@ export function useElevenLabsAgent(options: UseElevenLabsAgentOptions) {
         });
       } else {
         // Get alternative slots
-        const alternatives = getAvailableSlots(proposedDate, 60)
+        const allSlots = await getAvailableSlots(proposedDate, 60);
+        const alternatives = allSlots
           .filter(s => s.available)
           .slice(0, 3)
           .map(s => formatSlot(s.start));
@@ -92,7 +93,7 @@ export function useElevenLabsAgent(options: UseElevenLabsAgentOptions) {
       const endDate = new Date(appointmentDate.getTime() + 60 * 60 * 1000);
       const confirmationCode = params.confirmation_code || generateConfirmationCode();
       
-      const result = bookAppointment(
+      const result = await bookAppointment(
         `Appointment at ${provider.name}`,
         appointmentDate,
         endDate,
@@ -132,7 +133,8 @@ export function useElevenLabsAgent(options: UseElevenLabsAgentOptions) {
         return JSON.stringify({ error: 'Could not parse date' });
       }
 
-      const slots = getAvailableSlots(targetDate, 60)
+      const allSlots = await getAvailableSlots(targetDate, 60);
+      const slots = allSlots
         .filter(s => s.available)
         .slice(0, 5);
 
@@ -251,23 +253,21 @@ export function useElevenLabsAgent(options: UseElevenLabsAgentOptions) {
       // Request microphone permission
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      // Get signed URL from edge function
-      const { data, error } = await supabase.functions.invoke('elevenlabs-conversation-token', {
-        body: { 
-          agentId,
-          context: {
-            provider_name: provider.name,
-            provider_phone: provider.phone,
-            service,
-            purpose: context.purpose,
-            details: context.details,
-            time_preference: context.time_preference,
-          }
+      // Get signed URL from backend
+      const data = await elevenlabs.conversationToken({
+        agentId,
+        context: {
+          provider_name: provider.name,
+          provider_phone: provider.phone,
+          service,
+          purpose: context.purpose,
+          details: context.details,
+          time_preference: context.time_preference,
         },
       });
 
-      if (error || !data?.signed_url) {
-        throw new Error(error?.message || 'Failed to get conversation token');
+      if (!data?.signed_url) {
+        throw new Error('Failed to get conversation token');
       }
 
       // Start conversation with WebSocket

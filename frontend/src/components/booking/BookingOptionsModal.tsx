@@ -29,6 +29,7 @@ import { IntakeField, IntakeFormData } from '@/types/intake';
 import { BookingMode, VoicePreference, ScoringWeight } from '@/types';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
+import { ai as aiApi, profiles as profilesApi } from '@/lib/api-client';
 import { BookingModeSelector } from '@/components/booking/BookingModeSelector';
 import { VoiceSelector } from '@/components/booking/VoiceSelector';
 import { WeightedPreferences } from '@/components/booking/WeightedPreferences';
@@ -84,20 +85,16 @@ export function BookingOptionsModal({
     if (!open) return;
 
     const loadProfileData = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('full_name, date_of_birth')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (profile) {
-        setSavedUserData({
-          name: profile.full_name || undefined,
-          dateOfBirth: profile.date_of_birth || undefined,
-        });
+      try {
+        const profile = await profilesApi.get();
+        if (profile) {
+          setSavedUserData({
+            name: (profile.full_name as string) || undefined,
+            dateOfBirth: (profile.date_of_birth as string) || undefined,
+          });
+        }
+      } catch {
+        // Profile may not exist yet
       }
     };
 
@@ -122,10 +119,8 @@ export function BookingOptionsModal({
       // Generate dynamic placeholder
       const generatePlaceholder = async () => {
         try {
-          const { data, error } = await supabase.functions.invoke('generate-intake-example', {
-            body: { service }
-          });
-          if (!error && data?.example) {
+          const data = await aiApi.generateIntakeExample({ service });
+          if (data?.example) {
             setPlaceholderExample(data.example);
           }
         } catch {
@@ -175,10 +170,9 @@ export function BookingOptionsModal({
   };
 
   const handleSubmit = async () => {
-    // Save profile data
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const nameKey = analysis?.allFields.find(f => f.key.includes('name') && f.type === 'text')?.key;
+    // Save profile data via backend
+    try {
+      const nameKey = analysis?.allFields.find((f: IntakeField) => f.key.includes('name') && f.type === 'text')?.key;
       const updates: { full_name?: string; date_of_birth?: string } = {};
 
       if (nameKey && formData[nameKey]) {
@@ -189,8 +183,10 @@ export function BookingOptionsModal({
       }
 
       if (Object.keys(updates).length > 0) {
-        await supabase.from('profiles').update(updates).eq('user_id', user.id);
+        await profilesApi.update(updates);
       }
+    } catch {
+      // Silently fail - profile update is non-critical
     }
 
     const completeData = buildCompleteData(formData);

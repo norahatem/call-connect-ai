@@ -166,7 +166,7 @@ def main(prompt, PORT=3001):
         "name": "check_availability",
         "description": "Checks the user's calendar for free and busy slots on a specific date. ALWAYS use this before proposing a time.",
         "api_schema": {
-            "url": f"{public_url}/check_calendar_availability",
+            "url": f"{public_url}/api/calendar/check-availability",
             "method": "POST",
             "request_body_schema": {
                 "type": "object",
@@ -185,7 +185,7 @@ def main(prompt, PORT=3001):
         "name": "book_slot",
         "description": "Books a confirmed appointment on the user's calendar. Call ONLY ONCE per agreed slot, and ONLY after the other party confirmed. Use CURRENT year in dates (e.g. 2026-02-09T14:00:00).",
         "api_schema": {
-            "url": f"{public_url}/book_calendar_slot",
+            "url": f"{public_url}/api/calendar/book-slot",
             "method": "POST",
             "request_body_schema": {
                 "type": "object",

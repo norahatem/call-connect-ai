@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { twilio } from '@/lib/api-client';
 
 interface VerificationState {
   isLoading: boolean;
@@ -22,11 +22,7 @@ export function usePhoneVerification() {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {
-      const { data, error } = await supabase.functions.invoke('twilio-verify-phone', {
-        body: { action: 'start_verification', phoneNumber },
-      });
-
-      if (error) throw error;
+      const data = await twilio.verifyPhone({ action: 'start_verification', phoneNumber });
       
       if (data.alreadyVerified) {
         setState(prev => ({ 
@@ -61,11 +57,7 @@ export function usePhoneVerification() {
     setState(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {
-      const { data, error } = await supabase.functions.invoke('twilio-verify-phone', {
-        body: { action: 'check_verification', phoneNumber },
-      });
-
-      if (error) throw error;
+      const data = await twilio.verifyPhone({ action: 'check_verification', phoneNumber });
 
       setState(prev => ({ 
         ...prev, 

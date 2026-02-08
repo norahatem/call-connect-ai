@@ -1,9 +1,6 @@
 import { useState, useCallback, useRef } from 'react';
 import { TranscriptLine, CallStatus, Provider, CallContextData } from '@/types';
 
-const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-const SUPABASE_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
-
 interface CallState {
   status: CallStatus;
   transcript: TranscriptLine[];
@@ -38,44 +35,10 @@ export function useAICall(options: UseAICallOptions = {}) {
     });
   }, []);
 
-  const playAudio = useCallback(async (text: string, speaker: 'ai' | 'provider', providerId: string) => {
+  const playAudio = useCallback(async (_text: string, _speaker: 'ai' | 'provider', _providerId: string) => {
+    // TTS disabled in mock mode -- just a short pause to simulate speech
     if (!isAudioEnabled) return;
-
-    try {
-      const response = await fetch(`${SUPABASE_URL}/functions/v1/elevenlabs-tts`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'apikey': SUPABASE_KEY,
-          'Authorization': `Bearer ${SUPABASE_KEY}`,
-        },
-        body: JSON.stringify({ text, speaker }),
-      });
-
-      if (!response.ok) {
-        console.warn('TTS failed, continuing without audio');
-        return;
-      }
-
-      const audioBlob = await response.blob();
-      const audioUrl = URL.createObjectURL(audioBlob);
-      const audio = new Audio(audioUrl);
-      
-      // Queue audio for this call
-      if (!audioQueue.current.has(providerId)) {
-        audioQueue.current.set(providerId, []);
-      }
-      audioQueue.current.get(providerId)!.push(audio);
-
-      await audio.play();
-      
-      // Clean up after playing
-      audio.onended = () => {
-        URL.revokeObjectURL(audioUrl);
-      };
-    } catch (error) {
-      console.warn('Audio playback failed:', error);
-    }
+    await new Promise(resolve => setTimeout(resolve, 600 + Math.random() * 400));
   }, [isAudioEnabled]);
 
   const addTranscriptLine = useCallback((
@@ -133,98 +96,56 @@ export function useAICall(options: UseAICallOptions = {}) {
 
       updateCallState(providerId, { status: 'in_progress' });
 
+      // ---- Mock conversation (no AI calls) ----
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+      tomorrow.setHours(10, 0, 0, 0);
+      const slotStr = tomorrow.toLocaleString('en-US', {
+        weekday: 'long', month: 'long', day: 'numeric',
+        hour: 'numeric', minute: '2-digit', hour12: true,
+      });
+      const mockCode = `BK${Math.floor(1000 + Math.random() * 9000)}`;
+
+      const mockScript = [
+        {
+          ai: `Hi, this is an AI assistant calling on behalf of ${userName}. I'm looking to book a ${service} appointment at ${provider.name}. Do you have any availability ${context.time_preference || 'this week'}?`,
+          provider: `Hello! Yes, we have a few openings. How about ${slotStr}?`,
+        },
+        {
+          ai: `That sounds great! ${slotStr} works perfectly for my client. Could you please confirm the booking?`,
+          provider: `Wonderful, you're all set. The confirmation code is ${mockCode}. Is there anything else I can help with?`,
+        },
+        {
+          ai: `No, that's everything. Thank you so much for your help! Have a great day.`,
+          provider: `You too, goodbye!`,
+        },
+      ];
+
       let conversationHistory: TranscriptLine[] = [];
-      let callStatus: 'continue' | 'success' | 'unavailable' | 'closed' = 'continue';
-      let maxTurns = 6;
       let turn = 0;
-      let availableSlot: string | undefined;
-      let confirmationCode: string | undefined;
+      const availableSlot = tomorrow.toISOString();
+      const confirmationCode = mockCode;
 
-      while (callStatus === 'continue' && turn < maxTurns && !controller.signal.aborted) {
-        // Get AI's message
-        const aiResponse = await fetch(`${SUPABASE_URL}/functions/v1/ai-call-orchestrator`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': SUPABASE_KEY,
-            'Authorization': `Bearer ${SUPABASE_KEY}`,
-          },
-          body: JSON.stringify({
-            service,
-            providerName: provider.name,
-            userName,
-            purpose: context.purpose,
-            details: context.details,
-            timePreference: context.time_preference,
-            conversationHistory,
-          }),
-          signal: controller.signal,
-        });
-
-        if (!aiResponse.ok) {
-          throw new Error('AI orchestrator failed');
-        }
-
-        const aiData = await aiResponse.json();
-        
-        // Add AI message to transcript
-        addTranscriptLine(providerId, 'ai', aiData.message);
-        conversationHistory.push({ speaker: 'ai', text: aiData.message, timestamp: Date.now() });
-        
-        // Play AI audio
-        await playAudio(aiData.message, 'ai', providerId);
-        
+      for (const step of mockScript) {
         if (controller.signal.aborted) return;
 
-        // Small pause before provider responds
+        addTranscriptLine(providerId, 'ai', step.ai);
+        conversationHistory.push({ speaker: 'ai', text: step.ai, timestamp: Date.now() });
+        await playAudio(step.ai, 'ai', providerId);
+
+        if (controller.signal.aborted) return;
         await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 800));
 
-        // Get provider's response
-        const providerResponse = await fetch(`${SUPABASE_URL}/functions/v1/simulate-call-response`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'apikey': SUPABASE_KEY,
-            'Authorization': `Bearer ${SUPABASE_KEY}`,
-          },
-          body: JSON.stringify({
-            service,
-            providerName: provider.name,
-            aiMessage: aiData.message,
-            conversationHistory: conversationHistory.map(c => ({ role: c.speaker === 'ai' ? 'assistant' : 'user', content: c.text })),
-            timePreference: context.time_preference,
-          }),
-          signal: controller.signal,
-        });
-
-        if (!providerResponse.ok) {
-          throw new Error('Provider simulation failed');
-        }
-
-        const providerData = await providerResponse.json();
-        
-        // Add provider response to transcript
-        addTranscriptLine(providerId, 'provider', providerData.response);
-        conversationHistory.push({ speaker: 'provider', text: providerData.response, timestamp: Date.now() });
-        
-        // Play provider audio
-        await playAudio(providerData.response, 'provider', providerId);
-        
-        callStatus = providerData.status;
-        if (providerData.availableSlot) {
-          availableSlot = providerData.availableSlot;
-        }
-        if (providerData.confirmationCode) {
-          confirmationCode = providerData.confirmationCode;
-        }
+        addTranscriptLine(providerId, 'provider', step.provider);
+        conversationHistory.push({ speaker: 'provider', text: step.provider, timestamp: Date.now() });
+        await playAudio(step.provider, 'provider', providerId);
 
         turn++;
-        
-        // Update duration
-        updateCallState(providerId, { 
-          duration: turn * 8, // Approximate seconds per turn
-        });
+        updateCallState(providerId, { duration: turn * 8 });
       }
+
+      const callStatus = 'success' as const;
+      // ---- End mock ----
 
       // Finalize call
       if (callStatus === 'success' && availableSlot) {
@@ -245,19 +166,20 @@ export function useAICall(options: UseAICallOptions = {}) {
         }
 
         // Generate confirmation code if not provided
-        if (!confirmationCode) {
+        let finalCode = confirmationCode;
+        if (!finalCode) {
           const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
           const numbers = '23456789';
-          confirmationCode = '';
-          for (let i = 0; i < 2; i++) confirmationCode += letters[Math.floor(Math.random() * letters.length)];
-          for (let i = 0; i < 4; i++) confirmationCode += numbers[Math.floor(Math.random() * numbers.length)];
+          finalCode = '';
+          for (let i = 0; i < 2; i++) finalCode += letters[Math.floor(Math.random() * letters.length)];
+          for (let i = 0; i < 4; i++) finalCode += numbers[Math.floor(Math.random() * numbers.length)];
         }
 
         const successResult: CallState = { 
           status: 'success',
           transcript: conversationHistory,
           availableSlot: slotDate,
-          confirmationCode,
+          confirmationCode: finalCode,
           duration: turn * 8,
         };
         updateCallState(providerId, successResult);

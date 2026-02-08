@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import { useScribe, CommitStrategy } from '@elevenlabs/react';
-import { supabase } from '@/integrations/supabase/client';
+import { elevenlabs } from '@/lib/api-client';
 
 interface UseVoiceModeOptions {
   onTranscript: (text: string) => void;
@@ -39,10 +39,10 @@ export function useVoiceMode({ onTranscript, onError }: UseVoiceModeOptions) {
     
     try {
       console.log('Getting scribe token...');
-      const { data, error } = await supabase.functions.invoke('elevenlabs-scribe-token');
+      const data = await elevenlabs.scribeToken();
       
-      if (error || !data?.token) {
-        throw new Error(error?.message || 'Failed to get scribe token');
+      if (!data?.token) {
+        throw new Error('Failed to get scribe token');
       }
 
       console.log('Connecting to scribe...');
@@ -119,21 +119,7 @@ export function useVoiceMode({ onTranscript, onError }: UseVoiceModeOptions) {
     try {
       console.log('Generating TTS for:', text.substring(0, 50) + '...');
       
-      const response = await fetch(
-        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/elevenlabs-tts`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
-          },
-          body: JSON.stringify({ 
-            text, 
-            speaker: 'ai_assistant' 
-          }),
-        }
-      );
+      const response = await elevenlabs.tts({ text, speaker: 'ai_assistant' });
 
       if (!response.ok) {
         throw new Error(`TTS request failed: ${response.status}`);

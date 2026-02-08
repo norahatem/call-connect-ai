@@ -28,6 +28,7 @@ import { useSmartIntake } from '@/hooks/useSmartIntake';
 import { IntakeField, IntakeFormData } from '@/types/intake';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/integrations/supabase/client';
+import { ai as aiApi, profiles as profilesApi } from '@/lib/api-client';
 
 interface SmartIntakeModalProps {
   open: boolean;
@@ -58,20 +59,16 @@ export function SmartIntakeModal({
     if (!open) return;
 
     const loadProfileData = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('full_name, date_of_birth')
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (profile) {
-        setSavedUserData({
-          name: profile.full_name || undefined,
-          dateOfBirth: profile.date_of_birth || undefined,
-        });
+      try {
+        const profile = await profilesApi.get();
+        if (profile) {
+          setSavedUserData({
+            name: (profile.full_name as string) || undefined,
+            dateOfBirth: (profile.date_of_birth as string) || undefined,
+          });
+        }
+      } catch {
+        // Profile may not exist yet
       }
     };
 
@@ -91,10 +88,8 @@ export function SmartIntakeModal({
       // Generate dynamic placeholder via LLM
       const generatePlaceholder = async () => {
         try {
-          const { data, error } = await supabase.functions.invoke('generate-intake-example', {
-            body: { service }
-          });
-          if (!error && data?.example) {
+          const data = await aiApi.generateIntakeExample({ service });
+          if (data?.example) {
             setPlaceholderExample(data.example);
           }
         } catch {
@@ -139,10 +134,9 @@ export function SmartIntakeModal({
   };
 
   const handleSubmit = async () => {
-    // Save name and DOB to user profile in database
-    const { data: { user } } = await supabase.auth.getUser();
-    if (user) {
-      const nameKey = analysis?.allFields.find(f => f.key.includes('name') && f.type === 'text')?.key;
+    // Save name and DOB to user profile via backend
+    try {
+      const nameKey = analysis?.allFields.find((f: IntakeField) => f.key.includes('name') && f.type === 'text')?.key;
       const updates: { full_name?: string; date_of_birth?: string } = {};
       
       if (nameKey && formData[nameKey]) {
@@ -153,11 +147,10 @@ export function SmartIntakeModal({
       }
       
       if (Object.keys(updates).length > 0) {
-        await supabase
-          .from('profiles')
-          .update(updates)
-          .eq('user_id', user.id);
+        await profilesApi.update(updates);
       }
+    } catch {
+      // Silently fail - profile update is non-critical
     }
     
     const completeData = buildCompleteData(formData);

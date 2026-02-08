@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { supabase } from '@/integrations/supabase/client';
+import { ai } from '@/lib/api-client';
 import { IntakeAnalysisResult, IntakeFormData } from '@/types/intake';
 
 interface UseSmartIntakeOptions {
@@ -16,13 +16,7 @@ export function useSmartIntake(options: UseSmartIntakeOptions = {}) {
     setError(null);
 
     try {
-      const { data, error: fnError } = await supabase.functions.invoke('analyze-intake', {
-        body: { service, userInput }
-      });
-
-      if (fnError) {
-        throw new Error(fnError.message);
-      }
+      const data = await ai.analyzeIntake({ service, userInput });
 
       const result: IntakeAnalysisResult = {
         category: data.category,

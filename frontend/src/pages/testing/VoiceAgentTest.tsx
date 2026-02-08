@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Mic, MicOff, Volume2, Loader2, MessageSquare, Settings } from "lucide-react";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { supabase } from "@/integrations/supabase/client";
+import { elevenlabs } from "@/lib/api-client";
 import { toast } from "sonner";
 
 interface TranscriptEntry {
@@ -78,12 +78,8 @@ export default function VoiceAgentTest() {
       // Request microphone permission
       await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      // Get signed URL from edge function
-      const { data, error } = await supabase.functions.invoke("elevenlabs-conversation-token", {
-        body: { agentId: agentId.trim() },
-      });
-
-      if (error) throw error;
+      // Get signed URL from backend
+      const data = await elevenlabs.conversationToken({ agentId: agentId.trim() });
 
       if (!data?.signed_url) {
         throw new Error("No signed URL received");

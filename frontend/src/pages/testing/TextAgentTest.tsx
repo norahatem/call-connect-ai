@@ -16,8 +16,8 @@ import {
   bookAppointment, 
   parseTimeSlot, 
   formatSlot,
-} from '@/lib/mock-calendar';
-import { supabase } from '@/integrations/supabase/client';
+} from '@/lib/calendar-api';
+import { ai } from '@/lib/api-client';
 
 interface Message {
   id: string;
@@ -122,7 +122,7 @@ export default function TextAgentTest() {
           result = { available: false, error: 'Could not parse time' };
         } else {
           const endDate = new Date(proposedDate.getTime() + 60 * 60 * 1000);
-          const availability = checkAvailability(proposedDate, endDate);
+          const availability = await checkAvailability(proposedDate, endDate);
           
           if (availability.available) {
             result = { 
@@ -146,7 +146,7 @@ export default function TextAgentTest() {
           const endDate = new Date(appointmentDate.getTime() + 60 * 60 * 1000);
           const confirmationCode = tool.params.confirmationCode || 'UNKNOWN';
           
-          const bookResult = bookAppointment(
+          const bookResult = await bookAppointment(
             `${mockProvider.service} at ${mockProvider.name}`,
             appointmentDate,
             endDate,
@@ -208,18 +208,14 @@ export default function TextAgentTest() {
       }));
 
       // First call: Get agent's initial response
-      const response = await supabase.functions.invoke('text-agent-chat', {
-        body: {
-          receptionistMessage: textToSend.trim(),
-          provider: mockProvider,
-          user: mockUser,
-          conversationHistory,
-        },
+      const responseData = await ai.textChat({
+        receptionistMessage: textToSend.trim(),
+        provider: mockProvider,
+        user: mockUser,
+        conversationHistory,
       });
 
-      if (response.error) throw response.error;
-
-      let { agentResponse, toolCalls } = response.data;
+      let { agentResponse, toolCalls } = responseData;
 
       // If there are tool calls, execute them and get follow-up response
       if (toolCalls && toolCalls.length > 0) {
@@ -239,20 +235,18 @@ export default function TextAgentTest() {
         setMessages(prev => [...prev, toolMessage]);
 
         // Call the API again with tool results to get proper follow-up
-        const followUpResponse = await supabase.functions.invoke('text-agent-chat', {
-          body: {
-            provider: mockProvider,
-            user: mockUser,
-            conversationHistory: [
-              ...conversationHistory,
-              { role: 'user', content: textToSend.trim() },
-            ],
-            toolResults,
-          },
+        const followUpData = await ai.textChat({
+          provider: mockProvider,
+          user: mockUser,
+          conversationHistory: [
+            ...conversationHistory,
+            { role: 'user', content: textToSend.trim() },
+          ],
+          toolResults,
         });
 
-        if (!followUpResponse.error && followUpResponse.data) {
-          agentResponse = followUpResponse.data.agentResponse;
+        if (followUpData) {
+          agentResponse = followUpData.agentResponse;
         }
       }
 

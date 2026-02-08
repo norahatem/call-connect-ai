@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Phone, PhoneCall, PhoneOff, Loader2, Mic, Volume2, RefreshCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { twilio } from "@/lib/api-client";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface TranscriptEntry {
@@ -58,19 +59,15 @@ export default function VoiceTest() {
     setCallStatus("calling");
 
     try {
-      const { data, error } = await supabase.functions.invoke("twilio-test-call", {
-        body: {
-          toNumber: phoneNumber,
-          providerName: "Test Voice Assistant",
-          service: "voice testing",
-          userName: "Test User",
-          purpose: "testing",
-          details: "This is a test call to verify the voice pipeline",
-          timePreference: "now",
-        },
+      const data = await twilio.testCall({
+        toNumber: phoneNumber,
+        providerName: "Test Voice Assistant",
+        service: "voice testing",
+        userName: "Test User",
+        purpose: "testing",
+        details: "This is a test call to verify the voice pipeline",
+        timePreference: "now",
       });
-
-      if (error) throw error;
 
       if (data?.success) {
         setCallSid(data.callSid);

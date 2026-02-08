@@ -1,6 +1,7 @@
 import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import { profiles as profilesApi } from '@/lib/api-client';
 import { Profile } from '@/types';
 
 interface AuthContextType {
@@ -53,15 +54,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  const fetchProfile = async (userId: string) => {
-    const { data, error } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('user_id', userId)
-      .maybeSingle();
-
-    if (!error && data) {
-      setProfile(data as Profile);
+  const fetchProfile = async (_userId: string) => {
+    try {
+      const data = await profilesApi.get();
+      if (data) {
+        setProfile(data as Profile);
+      }
+    } catch {
+      // Profile may not exist yet
     }
   };
 
@@ -101,16 +101,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateProfile = async (updates: Partial<Profile>) => {
     if (!user) return { error: new Error('Not authenticated') };
 
-    const { error } = await supabase
-      .from('profiles')
-      .update(updates)
-      .eq('user_id', user.id);
-
-    if (!error) {
+    try {
+      await profilesApi.update(updates as { full_name?: string; date_of_birth?: string });
       setProfile(prev => prev ? { ...prev, ...updates } : null);
+      return { error: null };
+    } catch (err) {
+      return { error: err as Error };
     }
-
-    return { error: error as Error | null };
   };
 
   return (
