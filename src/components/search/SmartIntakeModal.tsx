@@ -52,18 +52,20 @@ export function SmartIntakeModal({
 
   const { isAnalyzing, analysis, analyzeIntake, buildCompleteData, reset } = useSmartIntake();
 
-  // Load saved user data from profile in database
+  // Load saved user data from profile in database (refresh on open)
   useEffect(() => {
+    if (!open) return;
+
     const loadProfileData = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      
+
       const { data: profile } = await supabase
         .from('profiles')
         .select('full_name, date_of_birth')
         .eq('user_id', user.id)
-        .single();
-      
+        .maybeSingle();
+
       if (profile) {
         setSavedUserData({
           name: profile.full_name || undefined,
@@ -71,9 +73,9 @@ export function SmartIntakeModal({
         });
       }
     };
-    
+
     loadProfileData();
-  }, []);
+  }, [open]);
 
   // Reset when modal opens
   useEffect(() => {
