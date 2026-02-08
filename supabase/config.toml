@@ -26,3 +26,15 @@ verify_jwt = false
 
 [functions.twilio-test-call]
 verify_jwt = false
+
+[functions.text-agent-chat]
+verify_jwt = false
+
+[functions.elevenlabs-scribe-token]
+verify_jwt = false
+
+[functions.elevenlabs-conversation-token]
+verify_jwt = false
+
+[functions.analyze-intake]
+verify_jwt = false
