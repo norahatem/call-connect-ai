@@ -75,60 +75,74 @@ export default function TextAgentTest() {
   }, [messages]);
 
   // Client tools - these check the USER's (client's) calendar
-  const clientTools = {
-    check_client_availability: async (proposedTime: string) => {
-      const proposedDate = parseTimeSlot(proposedTime);
-      if (!proposedDate) {
-        return { available: false, error: 'Could not parse time' };
-      }
-
-      const endDate = new Date(proposedDate.getTime() + 60 * 60 * 1000);
-      const result = checkAvailability(proposedDate, endDate);
+  const executeTools = async (toolCalls: Array<{name: string, params: any}>) => {
+    const results: Array<{name: string, result: any}> = [];
+    
+    for (const tool of toolCalls) {
+      let result;
       
-      if (result.available) {
-        return { 
-          available: true, 
-          slot: formatSlot(proposedDate),
-        };
+      if (tool.name === 'check_client_availability') {
+        const proposedDate = parseTimeSlot(tool.params.time);
+        if (!proposedDate) {
+          result = { available: false, error: 'Could not parse time' };
+        } else {
+          const endDate = new Date(proposedDate.getTime() + 60 * 60 * 1000);
+          const availability = checkAvailability(proposedDate, endDate);
+          
+          if (availability.available) {
+            result = { 
+              available: true, 
+              slot: formatSlot(proposedDate),
+              message: `${mockUser.name} is FREE at ${formatSlot(proposedDate)}`
+            };
+          } else {
+            result = { 
+              available: false, 
+              conflict: availability.conflictingEvent?.title,
+              message: `${mockUser.name} has a CONFLICT: "${availability.conflictingEvent?.title}"`
+            };
+          }
+        }
+      } else if (tool.name === 'book_appointment') {
+        const appointmentDate = parseTimeSlot(tool.params.time);
+        if (!appointmentDate) {
+          result = { success: false, error: 'Invalid time' };
+        } else {
+          const endDate = new Date(appointmentDate.getTime() + 60 * 60 * 1000);
+          const confirmationCode = tool.params.confirmationCode || 'UNKNOWN';
+          
+          const bookResult = bookAppointment(
+            `${mockProvider.service} at ${mockProvider.name}`,
+            appointmentDate,
+            endDate,
+            mockProvider.name,
+            confirmationCode
+          );
+
+          if (bookResult.success) {
+            setBookingResult({ slot: appointmentDate, confirmationCode });
+            toast({
+              title: '🎉 Appointment Booked!',
+              description: `${mockUser.name}'s appointment confirmed`,
+            });
+            result = { 
+              success: true, 
+              time: formatSlot(appointmentDate), 
+              confirmationCode,
+              message: `Booking CONFIRMED for ${mockUser.name} at ${formatSlot(appointmentDate)}`
+            };
+          } else {
+            result = { success: false, error: bookResult.error };
+          }
+        }
       } else {
-        return { 
-          available: false, 
-          conflict: result.conflictingEvent?.title,
-        };
+        result = { error: `Unknown tool: ${tool.name}` };
       }
-    },
-
-    get_client_schedule: async () => {
-      const events = getCalendarEvents();
-      const slots = getAvailableSlots(new Date(), 60).filter(s => s.available).slice(0, 5);
-      return {
-        existingEvents: events.map(e => ({ title: e.title, time: formatSlot(e.start) })),
-        availableSlots: slots.map(s => formatSlot(s.start)),
-      };
-    },
-
-    book_appointment: async (appointmentTime: string, confirmationCode: string) => {
-      const appointmentDate = parseTimeSlot(appointmentTime);
-      if (!appointmentDate) {
-        return { success: false, error: 'Invalid time' };
-      }
-
-      const endDate = new Date(appointmentDate.getTime() + 60 * 60 * 1000);
       
-      const result = bookAppointment(
-        `${mockProvider.service} at ${mockProvider.name}`,
-        appointmentDate,
-        endDate,
-        mockProvider.name,
-        confirmationCode
-      );
-
-      if (result.success) {
-        setBookingResult({ slot: appointmentDate, confirmationCode });
-        return { success: true, time: formatSlot(appointmentDate), confirmationCode };
-      }
-      return { success: false, error: result.error };
-    },
+      results.push({ name: tool.name, result });
+    }
+    
+    return results;
   };
 
   const handleSend = async () => {
@@ -147,53 +161,62 @@ export default function TextAgentTest() {
     setIsLoading(true);
 
     try {
-      // Call edge function to get AI agent's response
+      // Build conversation history for the API
+      const conversationHistory = messages.filter(m => m.role !== 'system').map(m => ({
+        role: m.role === 'agent' ? 'assistant' : 'user',
+        content: m.content,
+      }));
+
+      // First call: Get agent's initial response
       const response = await supabase.functions.invoke('text-agent-chat', {
         body: {
           receptionistMessage: input.trim(),
           provider: mockProvider,
           user: mockUser,
-          conversationHistory: messages.filter(m => m.role !== 'system').map(m => ({
-            role: m.role === 'agent' ? 'assistant' : 'user',
-            content: m.content,
-          })),
+          conversationHistory,
         },
       });
 
       if (response.error) throw response.error;
 
-      const { agentResponse, toolCalls } = response.data;
+      let { agentResponse, toolCalls } = response.data;
 
-      // Execute any tool calls
-      let toolResults: Message[] = [];
+      // If there are tool calls, execute them and get follow-up response
       if (toolCalls && toolCalls.length > 0) {
-        for (const tool of toolCalls) {
-          let result;
-          if (tool.name === 'check_client_availability') {
-            result = await clientTools.check_client_availability(tool.params.time);
-          } else if (tool.name === 'get_client_schedule') {
-            result = await clientTools.get_client_schedule();
-          } else if (tool.name === 'book_appointment') {
-            result = await clientTools.book_appointment(tool.params.time, tool.params.confirmationCode);
-            if (result.success) {
-              toast({
-                title: '🎉 Appointment Booked!',
-                description: `${mockUser.name}'s appointment confirmed`,
-              });
-            }
-          }
+        console.log('Executing tool calls:', toolCalls);
+        
+        // Execute the tools
+        const toolResults = await executeTools(toolCalls);
+        console.log('Tool results:', toolResults);
 
-          toolResults.push({
-            id: `tool-${Date.now()}-${tool.name}`,
-            role: 'system',
-            content: `🔧 ${tool.name}: ${JSON.stringify(result)}`,
-            timestamp: new Date(),
-            toolCall: { name: tool.name, result },
-          });
+        // Add tool execution as a system message
+        const toolMessage: Message = {
+          id: `tool-${Date.now()}`,
+          role: 'system',
+          content: `🔧 Checking ${mockUser.name}'s calendar...\n${toolResults.map(t => `${t.name}: ${t.result.message || JSON.stringify(t.result)}`).join('\n')}`,
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, toolMessage]);
+
+        // Call the API again with tool results to get proper follow-up
+        const followUpResponse = await supabase.functions.invoke('text-agent-chat', {
+          body: {
+            provider: mockProvider,
+            user: mockUser,
+            conversationHistory: [
+              ...conversationHistory,
+              { role: 'user', content: input.trim() },
+            ],
+            toolResults,
+          },
+        });
+
+        if (!followUpResponse.error && followUpResponse.data) {
+          agentResponse = followUpResponse.data.agentResponse;
         }
       }
 
-      // Add tool results and agent response
+      // Add agent's final response
       const agentMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'agent',
@@ -201,7 +224,7 @@ export default function TextAgentTest() {
         timestamp: new Date(),
       };
 
-      setMessages(prev => [...prev, ...toolResults, agentMessage]);
+      setMessages(prev => [...prev, agentMessage]);
 
     } catch (error) {
       console.error('Chat error:', error);
@@ -210,7 +233,7 @@ export default function TextAgentTest() {
       const fallbackMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: 'agent',
-        content: `Let me check my client's calendar... Could you tell me what times you have available?`,
+        content: `I see. Let me check if that works for my client's schedule...`,
         timestamp: new Date(),
       };
       setMessages(prev => [...prev, fallbackMessage]);
@@ -283,7 +306,7 @@ export default function TextAgentTest() {
             <p><strong>Provider:</strong> {mockProvider.name}</p>
             <p><strong>AI is booking for:</strong> {mockUser.name}</p>
             <p className="text-xs opacity-70">
-              Respond as a receptionist would. Offer appointment times, ask for details, confirm bookings.
+              Respond as a receptionist would. Offer appointment times, ask for details, confirm bookings with a code.
             </p>
           </CardContent>
         </Card>
@@ -343,7 +366,7 @@ export default function TextAgentTest() {
               </div>
               <div className="bg-muted rounded-2xl px-4 py-3 flex items-center gap-2">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span className="text-sm text-muted-foreground">Checking client's calendar...</span>
+                <span className="text-sm text-muted-foreground">Agent is responding...</span>
               </div>
             </motion.div>
           )}
@@ -385,7 +408,7 @@ export default function TextAgentTest() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Respond as the receptionist... (e.g., 'We have 2pm tomorrow available')"
+              placeholder="e.g., 'We have 2pm tomorrow available' or 'Confirmed! Code is AB1234'"
               className="flex-1"
               disabled={isLoading}
             />
