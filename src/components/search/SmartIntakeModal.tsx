@@ -27,12 +27,17 @@ import {
 import { useSmartIntake } from '@/hooks/useSmartIntake';
 import { IntakeField, IntakeFormData } from '@/types/intake';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/integrations/supabase/client';
 
 interface SmartIntakeModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onComplete: (data: IntakeFormData, category: string) => void;
   service: string;
+  userProfile?: {
+    name?: string;
+    dateOfBirth?: string; // dd/mm/yyyy format
+  };
 }
 
 type IntakeStep = 'initial' | 'analyzing' | 'form';
@@ -42,13 +47,25 @@ export function SmartIntakeModal({
   onOpenChange,
   onComplete,
   service,
+  userProfile,
 }: SmartIntakeModalProps) {
   const [step, setStep] = useState<IntakeStep>('initial');
   const [initialDetails, setInitialDetails] = useState('');
   const [formData, setFormData] = useState<IntakeFormData>({});
   const [showOptional, setShowOptional] = useState(false);
+  const [savedUserData, setSavedUserData] = useState<{ name?: string; dateOfBirth?: string }>({});
 
   const { isAnalyzing, analysis, analyzeIntake, buildCompleteData, reset } = useSmartIntake();
+
+  // Load saved user data from localStorage on mount
+  useEffect(() => {
+    const savedName = localStorage.getItem('user_full_name');
+    const savedDob = localStorage.getItem('user_date_of_birth');
+    setSavedUserData({
+      name: savedName || userProfile?.name || undefined,
+      dateOfBirth: savedDob || userProfile?.dateOfBirth || undefined,
+    });
+  }, [userProfile]);
 
   // Reset when modal opens
   useEffect(() => {
@@ -66,8 +83,23 @@ export function SmartIntakeModal({
     const result = await analyzeIntake(service, initialDetails);
     
     if (result) {
-      // Pre-fill form with extracted info
-      setFormData(result.extractedInfo);
+      // Pre-fill form with extracted info + saved user data
+      const prefilledData: IntakeFormData = { ...result.extractedInfo };
+      
+      // Auto-fill name fields from saved data
+      const nameKey = result.allFields.find(f => 
+        f.key.includes('name') && f.type === 'text'
+      )?.key;
+      if (nameKey && savedUserData.name && !prefilledData[nameKey]) {
+        prefilledData[nameKey] = savedUserData.name;
+      }
+      
+      // Auto-fill date of birth from saved data
+      if (savedUserData.dateOfBirth && !prefilledData['date_of_birth']) {
+        prefilledData['date_of_birth'] = savedUserData.dateOfBirth;
+      }
+      
+      setFormData(prefilledData);
       setStep('form');
     } else {
       // Fallback to initial on error
@@ -80,13 +112,24 @@ export function SmartIntakeModal({
   };
 
   const handleSubmit = () => {
+    // Save name and DOB for future use
+    const nameKey = analysis?.allFields.find(f => f.key.includes('name') && f.type === 'text')?.key;
+    if (nameKey && formData[nameKey]) {
+      localStorage.setItem('user_full_name', formData[nameKey]);
+    }
+    if (formData['date_of_birth']) {
+      localStorage.setItem('user_date_of_birth', formData['date_of_birth']);
+    }
+    
     const completeData = buildCompleteData(formData);
     onComplete(completeData, analysis?.category || 'general');
   };
 
   const renderField = (field: IntakeField) => {
     const value = formData[field.key] || '';
-    const isExtracted = analysis?.extractedInfo[field.key];
+    const isExtracted = analysis?.extractedInfo[field.key] || 
+      (field.key.includes('name') && savedUserData.name && formData[field.key] === savedUserData.name) ||
+      (field.key === 'date_of_birth' && savedUserData.dateOfBirth && formData[field.key] === savedUserData.dateOfBirth);
 
     return (
       <motion.div
@@ -119,7 +162,8 @@ export function SmartIntakeModal({
 
         {field.type === 'date' && (
           <Input
-            type="date"
+            type="text"
+            placeholder="dd/mm/yyyy"
             value={value}
             onChange={(e) => handleFieldChange(field.key, e.target.value)}
             className={cn(

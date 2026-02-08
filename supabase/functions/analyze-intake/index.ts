@@ -6,32 +6,31 @@ const corsHeaders = {
 };
 
 // Define required fields per service category
+// Note: 'date' type uses dd/mm/yyyy text format, not a date picker
 const SERVICE_REQUIREMENTS: Record<string, { fields: Array<{ key: string; label: string; type: 'text' | 'date' | 'select' | 'textarea'; options?: string[]; required: boolean }> }> = {
   medical: {
     fields: [
       { key: 'patient_name', label: 'Full Name', type: 'text', required: true },
-      { key: 'date_of_birth', label: 'Date of Birth', type: 'date', required: true },
-      { key: 'insurance_provider', label: 'Insurance Provider', type: 'text', required: false },
+      { key: 'date_of_birth', label: 'Date of Birth (dd/mm/yyyy)', type: 'text', required: true },
       { key: 'reason_for_visit', label: 'Reason for Visit', type: 'textarea', required: true },
-      { key: 'is_new_patient', label: 'Are you a new patient?', type: 'select', options: ['Yes', 'No'], required: true },
+      { key: 'insurance_provider', label: 'Insurance Provider', type: 'text', required: false },
     ]
   },
   dental: {
     fields: [
       { key: 'patient_name', label: 'Full Name', type: 'text', required: true },
-      { key: 'date_of_birth', label: 'Date of Birth', type: 'date', required: true },
+      { key: 'date_of_birth', label: 'Date of Birth (dd/mm/yyyy)', type: 'text', required: true },
+      { key: 'reason_for_visit', label: 'Reason for Visit', type: 'textarea', required: true },
       { key: 'insurance_provider', label: 'Dental Insurance', type: 'text', required: false },
-      { key: 'reason_for_visit', label: 'Reason for Visit', type: 'select', options: ['Cleaning', 'Checkup', 'Pain/Emergency', 'Cosmetic', 'Other'], required: true },
-      { key: 'is_new_patient', label: 'Are you a new patient?', type: 'select', options: ['Yes', 'No'], required: true },
     ]
   },
   automotive: {
     fields: [
+      { key: 'contact_name', label: 'Your Name', type: 'text', required: true },
       { key: 'vehicle_make', label: 'Vehicle Make', type: 'text', required: true },
       { key: 'vehicle_model', label: 'Vehicle Model', type: 'text', required: true },
       { key: 'vehicle_year', label: 'Vehicle Year', type: 'text', required: true },
       { key: 'issue_description', label: 'Describe the issue', type: 'textarea', required: true },
-      { key: 'service_type', label: 'Service Type', type: 'select', options: ['Oil Change', 'Brake Service', 'Tire Service', 'Diagnostics', 'Repair', 'Other'], required: true },
     ]
   },
   salon: {
@@ -77,6 +76,7 @@ serve(async (req) => {
 Given a service type and user's description, you must:
 1. Categorize the service into one of: medical, dental, automotive, salon, restaurant, general
 2. Extract any information the user has already provided
+3. IMPORTANT: Always extract the reason/purpose from the user's description into "reason_for_visit" or "issue_description" or "service_details" depending on category
 
 Respond with JSON:
 {
@@ -96,8 +96,12 @@ Examples of categorization:
 - anything else → general
 
 Extract field values if the user mentions them. For example:
-- "I need a haircut, my name is John" → extracted_info: { "client_name": "John" }
-- "Car won't start, it's a 2019 Honda Civic" → extracted_info: { "vehicle_make": "Honda", "vehicle_model": "Civic", "vehicle_year": "2019" }`;
+- "I need a haircut, my name is John" → extracted_info: { "client_name": "John", "service_type": "Haircut" }
+- "Car won't start, it's a 2019 Honda Civic" → extracted_info: { "vehicle_make": "Honda", "vehicle_model": "Civic", "vehicle_year": "2019", "issue_description": "Car won't start" }
+- "teeth cleaning" → extracted_info: { "reason_for_visit": "Teeth cleaning" }
+- "I have a toothache" → extracted_info: { "reason_for_visit": "Toothache" }
+
+IMPORTANT: The user's initial description almost always contains the reason for visit - extract it!`;
 
     const response = await fetch('https://ai.gateway.lovable.dev/v1/chat/completions', {
       method: 'POST',
