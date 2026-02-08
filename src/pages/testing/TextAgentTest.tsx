@@ -47,13 +47,13 @@ export default function TextAgentTest() {
     {
       id: '1',
       role: 'system',
-      content: `Testing booking flow for: ${mockProvider.name}. This simulates the AI agent's calendar tools WITHOUT using ElevenLabs credits.`,
+      content: `Your personal booking assistant for: ${mockProvider.name}. I'll check YOUR calendar and book on your behalf.`,
       timestamp: new Date(),
     },
     {
       id: '2',
       role: 'assistant',
-      content: `Hi! I'm testing the booking system for ${mockProvider.name}. I can check your calendar availability and book appointments. Try asking me things like:\n\n• "Am I free tomorrow at 2pm?"\n• "What slots are available this week?"\n• "Book me for Friday at 10am"`,
+      content: `Hi! I'm your personal booking assistant. I'll help you schedule an appointment at ${mockProvider.name} by:\n\n• Checking YOUR calendar for conflicts\n• Finding times that work for YOU\n• Booking the appointment on your behalf\n\nTry asking:\n• "Am I free tomorrow at 2pm?"\n• "When am I available this week?"\n• "Book me for Friday at 10am"`,
       timestamp: new Date(),
     },
   ]);
