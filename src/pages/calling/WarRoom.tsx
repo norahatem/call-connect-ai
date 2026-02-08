@@ -306,7 +306,7 @@ export default function WarRoomPage() {
       const otherProviderIds = Array.from(calls.keys()).filter(id => id !== providerId);
       setShuttingDownProviders(new Set(otherProviderIds));
 
-      // Terminate other calls with animation delay - use 'cancelled' to differentiate from 'failed'
+      // Terminate other calls with animation delay - add polite apology before cancelling
       setTimeout(() => {
         setCalls(prev => {
           const newCalls = new Map(prev);
@@ -315,10 +315,24 @@ export default function WarRoomPage() {
             if (id === confirmedBookingRef.current?.providerId) return;
             
             if (['queued', 'dialing', 'connected', 'in_progress'].includes(c.status)) {
+              // Add polite apology transcript before terminating
+              const apologyTranscript = c.transcript ? [...c.transcript] : [];
+              
+              // Only add apology if the call was actually connected (talking to someone)
+              if (['connected', 'in_progress'].includes(c.status)) {
+                apologyTranscript.push({
+                  speaker: 'ai',
+                  text: "I sincerely apologize, but we've just secured an appointment with another provider. Thank you so much for your time and assistance. Have a wonderful day!",
+                  timestamp: Date.now()
+                });
+              }
+              
               newCalls.set(id, { 
                 ...c, 
                 status: 'cancelled', 
+                transcript: apologyTranscript,
                 failure_reason: 'Slot secured elsewhere',
+                phase: 'completed',
                 updated_at: new Date().toISOString() 
               });
             }
