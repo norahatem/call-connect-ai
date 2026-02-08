@@ -264,6 +264,135 @@
       box-shadow: 0 0 40px hsl(160 84% 39% / 0.5);
     }
   }
+  
+  /* IVR Terminal/Matrix Log Styling */
+  .ivr-log {
+    @apply font-mono text-xs leading-relaxed;
+    background: linear-gradient(180deg, hsl(0 0% 3%) 0%, hsl(0 0% 5%) 100%);
+    border: 1px solid hsl(120 100% 25% / 0.3);
+  }
+  
+  .ivr-log-entry {
+    @apply py-0.5 px-2;
+  }
+  
+  .ivr-log-entry.dtmf {
+    @apply text-emerald-400;
+    text-shadow: 0 0 8px hsl(160 84% 39% / 0.6);
+  }
+  
+  .ivr-log-entry.menu {
+    @apply text-yellow-400;
+  }
+  
+  .ivr-log-entry.routing {
+    @apply text-cyan-400;
+  }
+  
+  .ivr-log-entry.human {
+    @apply text-primary;
+  }
+  
+  .ivr-log-entry.error {
+    @apply text-destructive;
+  }
+  
+  /* Keypad pulse animation */
+  .keypad-pulse {
+    animation: keypad-glow 0.5s ease-out;
+  }
+  
+  @keyframes keypad-glow {
+    0% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 hsl(160 84% 39% / 0.7);
+    }
+    50% {
+      transform: scale(1.1);
+      box-shadow: 0 0 20px 4px hsl(160 84% 39% / 0.4);
+    }
+    100% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 hsl(160 84% 39% / 0);
+    }
+  }
+  
+  /* Cancelled/shutdown animation */
+  .call-shutdown {
+    animation: shutdown 0.8s ease-out forwards;
+  }
+  
+  @keyframes shutdown {
+    0% {
+      opacity: 1;
+      transform: scale(1);
+      filter: grayscale(0);
+    }
+    50% {
+      opacity: 0.7;
+      transform: scale(0.98);
+      filter: grayscale(0.5);
+    }
+    100% {
+      opacity: 0.4;
+      transform: scale(0.97);
+      filter: grayscale(1);
+    }
+  }
+  
+  /* Status bar phase indicator */
+  .phase-bar {
+    @apply h-1 rounded-full transition-all duration-500;
+  }
+  
+  .phase-connecting { @apply bg-yellow-500; width: 16%; }
+  .phase-ivr { @apply bg-orange-500; width: 32%; }
+  .phase-navigating { @apply bg-amber-500; width: 48%; }
+  .phase-talking { @apply bg-blue-500; width: 64%; }
+  .phase-negotiating { @apply bg-primary; width: 80%; }
+  .phase-finalizing { @apply bg-emerald-500; width: 100%; }
+  
+  /* Slot match highlight */
+  .slot-match-highlight {
+    @apply bg-success/20 border-l-2 border-success px-2 py-1 rounded-r;
+    animation: slot-pulse 1.5s ease-in-out infinite;
+  }
+  
+  @keyframes slot-pulse {
+    0%, 100% {
+      background-color: hsl(160 84% 39% / 0.1);
+    }
+    50% {
+      background-color: hsl(160 84% 39% / 0.25);
+    }
+  }
+  
+  /* Emergency takeover button */
+  .emergency-takeover {
+    @apply relative overflow-hidden;
+  }
+  
+  .emergency-takeover::before {
+    content: '';
+    @apply absolute inset-0 bg-gradient-to-r from-destructive/0 via-destructive/20 to-destructive/0;
+    animation: emergency-sweep 2s linear infinite;
+  }
+  
+  @keyframes emergency-sweep {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+  }
+  
+  /* Conflict prevention badge */
+  .conflict-badge {
+    @apply bg-primary/20 text-primary border border-primary/40 rounded-full px-3 py-1 text-xs font-medium;
+    animation: badge-pulse 2s ease-in-out infinite;
+  }
+  
+  @keyframes badge-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 hsl(217 91% 60% / 0.4); }
+    50% { box-shadow: 0 0 12px 4px hsl(217 91% 60% / 0.2); }
+  }
 }
 
 @layer utilities {
