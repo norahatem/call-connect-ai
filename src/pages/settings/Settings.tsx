@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Calendar, Check, User, Phone, Mail, Loader2 } from 'lucide-react';
+import { Calendar, Check, User, Phone, Mail, Loader2, IdCard } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,14 +15,28 @@ export default function SettingsPage() {
   const { profile, updateProfile, signOut } = useAuth();
   const { toast } = useToast();
   
+  const [fullName, setFullName] = useState(profile?.full_name || '');
+  const [dateOfBirth, setDateOfBirth] = useState(profile?.date_of_birth || '');
   const [phone, setPhone] = useState(profile?.phone || '');
   const [calendarConnected, setCalendarConnected] = useState(profile?.calendar_connected || false);
   const [saving, setSaving] = useState(false);
   const [connecting, setConnecting] = useState(false);
 
+  // Keep local state in sync once profile loads
+  useEffect(() => {
+    setFullName(profile?.full_name || '');
+    setDateOfBirth(profile?.date_of_birth || '');
+    setPhone(profile?.phone || '');
+    setCalendarConnected(profile?.calendar_connected || false);
+  }, [profile]);
+
   const handleSave = async () => {
     setSaving(true);
-    const { error } = await updateProfile({ phone });
+    const { error } = await updateProfile({
+      phone,
+      full_name: fullName || null,
+      date_of_birth: dateOfBirth || null,
+    });
     
     if (error) {
       toast({
@@ -107,6 +121,31 @@ export default function SettingsPage() {
                     className="pl-10 bg-muted/50 border-border/50"
                   />
                 </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="fullName">Full name</Label>
+                <div className="relative">
+                  <IdCard className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    id="fullName"
+                    value={fullName}
+                    onChange={(e) => setFullName(e.target.value)}
+                    placeholder="e.g., Jane Doe"
+                    className="pl-10 bg-background border-border/50"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="dob">Date of birth (dd/mm/yyyy)</Label>
+                <Input
+                  id="dob"
+                  value={dateOfBirth}
+                  onChange={(e) => setDateOfBirth(e.target.value)}
+                  placeholder="dd/mm/yyyy"
+                  className="bg-background border-border/50"
+                />
               </div>
 
               <div className="space-y-2">

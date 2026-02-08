@@ -9,6 +9,8 @@ export interface Profile {
   phone?: string;
   phone_verified: boolean;
   calendar_connected: boolean;
+  full_name?: string | null;
+  date_of_birth?: string | null; // dd/mm/yyyy
   created_at: string;
   updated_at: string;
 }
